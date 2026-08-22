@@ -7,6 +7,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.get('/', (req, res) => {
+  res.send('POS Backend Server is Running!');
+});
+
 // Supabase 클라이언트 설정 (.env 파일 호환성 강화)
 const supabaseUrl =
   process.env.SUPABASE_URL ||
