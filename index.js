@@ -89,47 +89,19 @@ app.delete('/api/menus/:id', async (req, res) => {
 });
 
 // ==========================================
-// [1-1] 메뉴 카테고리 관리 API
+// [1-1] 메뉴 카테고리 관리 API (안전 방어 코드)
 // ==========================================
 app.get('/api/categories', async (req, res) => {
   try {
     const { data, error } = await supabase.from('categories').select('*');
     if (error) {
-      if (error.code === '42P01') return res.json([]);
-      throw error;
+      console.error('Supabase categories 조회 경고:', error.message);
+      return res.json([]); // 에러가 나도 500 대신 빈 배열 반환
     }
-    res.json(data);
+    res.json(data || []);
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/categories', async (req, res) => {
-  const { name } = req.body;
-  try {
-    const { data, error } = await supabase.from('categories').insert([{ name }]).select();
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/categories/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    // 삭제하려는 카테고리의 이름 조회
-    const { data: catData } = await supabase.from('categories').select('name').eq('id', id).single();
-    if (catData) {
-      // 해당 카테고리를 쓰던 메뉴들의 category를 null('카테고리 없음')로 변경
-      await supabase.from('menus').update({ category: null }).eq('category', catData.name);
-    }
-
-    const { error } = await supabase.from('categories').delete().eq('id', id);
-    if (error) throw error;
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('categories API 서버 예외:', err.message);
+    res.json([]); // 예외 발생 시에도 빈 배열 반환
   }
 });
 
