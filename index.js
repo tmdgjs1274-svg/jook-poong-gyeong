@@ -79,7 +79,7 @@ app.post('/api/menus', async (req, res) => {
         name, 
         price, 
         store_tag_id: store_tag_id || null, 
-        store_tag: store_tag || null,
+        store_tag: store_tag ? store_tag.trim() : null,
         category_id: parsedCategoryId,
         category: categoryName || category || null 
       }])
@@ -116,7 +116,7 @@ app.put('/api/menus/:id', async (req, res) => {
       name,
       price,
       store_tag_id: store_tag_id || null,
-      store_tag: store_tag || null,
+      store_tag: store_tag ? store_tag.trim() : null,
       category_id: parsedCategoryId,
       category: categoryName
     };
@@ -151,7 +151,7 @@ app.delete('/api/menus/:id', async (req, res) => {
 });
 
 // ==========================================
-// [1-1] 메뉴 카테고리 관리 API (가게별 분기 지원)
+// [1-1] 메뉴 카테고리 관리 API (가게별 분기 지원 및 싱크 보완)
 // ==========================================
 app.get('/api/categories', async (req, res) => {
   const { store_tag } = req.query;
@@ -159,7 +159,8 @@ app.get('/api/categories', async (req, res) => {
     let query = supabase.from('categories').select('*').order('display_order', { ascending: true });
     
     if (store_tag) {
-      query = query.eq('store_tag', store_tag);
+      // 공백 차이로 인한 싱크 오류를 방지하기 위해 trim() 적용
+      query = query.eq('store_tag', store_tag.trim());
     }
 
     const { data, error } = await query;
@@ -179,7 +180,7 @@ app.post('/api/categories', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('categories')
-      .insert([{ name, store_tag: store_tag || null, display_order: 0 }])
+      .insert([{ name, store_tag: store_tag ? store_tag.trim() : null, display_order: 0 }])
       .select();
     
     if (error) {
