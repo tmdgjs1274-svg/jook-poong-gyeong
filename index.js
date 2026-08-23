@@ -25,14 +25,12 @@ const supabaseKey =
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
-// [1] 메뉴 관련 API (카테고리 조인 포함)
+// [1] 메뉴 관련 API
 // ==========================================
 app.get('/api/menus', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('menus')
-      .select('*, categories(*)')
-      .order('id', { ascending: true });
+    // 카테고리 정보도 함께 조회하도록 수정
+    const { data, error } = await supabase.from('menus').select('*, categories(*)');
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -43,13 +41,15 @@ app.get('/api/menus', async (req, res) => {
 app.post('/api/menus', async (req, res) => {
   const { name, price, store_tag_id, category_id } = req.body;
   try {
-    const menuData = {
-      name,
-      price,
-      store_tag_id: store_tag_id || null,
-      category_id: category_id === '' || category_id === undefined ? null : category_id
-    };
-    const { data, error } = await supabase.from('menus').insert([menuData]).select();
+    const { data, error } = await supabase
+      .from('menus')
+      .insert([{ 
+        name, 
+        price, 
+        store_tag_id, 
+        category_id: category_id || null 
+      }])
+      .select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -61,13 +61,16 @@ app.put('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
   const { name, price, store_tag_id, category_id } = req.body;
   try {
-    const menuData = {
-      name,
-      price,
-      store_tag_id: store_tag_id || null,
-      category_id: category_id === '' || category_id === undefined ? null : category_id
-    };
-    const { data, error } = await supabase.from('menus').update(menuData).eq('id', id).select();
+    const { data, error } = await supabase
+      .from('menus')
+      .update({ 
+        name, 
+        price, 
+        store_tag_id, 
+        category_id: category_id || null 
+      })
+      .eq('id', id)
+      .select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -87,15 +90,11 @@ app.delete('/api/menus/:id', async (req, res) => {
 });
 
 // ==========================================
-// [2] 카테고리 관리 API (추가)
+// [1-1] 메뉴 카테고리 관리 API (신규 추가)
 // ==========================================
 app.get('/api/categories', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('categories')
-      .select('*')
-      .order('display_order', { ascending: true })
-      .order('id', { ascending: true });
+    const { data, error } = await supabase.from('categories').select('*');
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -106,27 +105,9 @@ app.get('/api/categories', async (req, res) => {
 app.post('/api/categories', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data, error } = await supabase
-      .from('categories')
-      .insert([{ name, display_order: 99 }])
-      .select();
+    const { data, error } = await supabase.from('categories').insert([{ name }]).select();
     if (error) throw error;
     res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/categories/order', async (req, res) => {
-  try {
-    const { items } = req.body; // [{ id, display_order }, ...]
-    for (const item of items) {
-      await supabase
-        .from('categories')
-        .update({ display_order: item.display_order })
-        .eq('id', item.id);
-    }
-    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -135,9 +116,9 @@ app.put('/api/categories/order', async (req, res) => {
 app.delete('/api/categories/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    // 카테고리가 삭제될 때 해당 메뉴들의 category_id를 null('카테고리 없음')로 변경
+    // 카테고리가 삭제될 경우 해당 메뉴의 category_id를 null('카테고리 없음')로 업데이트 처리
     await supabase.from('menus').update({ category_id: null }).eq('category_id', id);
-    
+
     const { error } = await supabase.from('categories').delete().eq('id', id);
     if (error) throw error;
     res.json({ success: true });
@@ -147,15 +128,11 @@ app.delete('/api/categories/:id', async (req, res) => {
 });
 
 // ==========================================
-// [3] 가게 구분 관리 API
+// [2] 가게 구분 관리 API
 // ==========================================
 app.get('/api/store-tags', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('store_tags')
-      .select('*')
-      .order('display_order', { ascending: true })
-      .order('id', { ascending: true });
+    const { data, error } = await supabase.from('store_tags').select('*');
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -166,21 +143,9 @@ app.get('/api/store-tags', async (req, res) => {
 app.post('/api/store-tags', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data, error } = await supabase.from('store_tags').insert([{ name, display_order: 99 }]).select();
+    const { data, error } = await supabase.from('store_tags').insert([{ name }]).select();
     if (error) throw error;
     res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/store-tags/order', async (req, res) => {
-  try {
-    const { items } = req.body;
-    for (const item of items) {
-      await supabase.from('store_tags').update({ display_order: item.display_order }).eq('id', item.id);
-    }
-    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -198,15 +163,11 @@ app.delete('/api/store-tags/:id', async (req, res) => {
 });
 
 // ==========================================
-// [4] 배달 구분 관리 API
+// [3] 배달 구분 관리 API
 // ==========================================
 app.get('/api/order-types', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('order_types')
-      .select('*')
-      .order('display_order', { ascending: true })
-      .order('id', { ascending: true });
+    const { data, error } = await supabase.from('order_types').select('*');
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -217,21 +178,9 @@ app.get('/api/order-types', async (req, res) => {
 app.post('/api/order-types', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data, error } = await supabase.from('order_types').insert([{ name, display_order: 99 }]).select();
+    const { data, error } = await supabase.from('order_types').insert([{ name }]).select();
     if (error) throw error;
     res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/order-types/order', async (req, res) => {
-  try {
-    const { items } = req.body;
-    for (const item of items) {
-      await supabase.from('order_types').update({ display_order: item.display_order }).eq('id', item.id);
-    }
-    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -249,12 +198,18 @@ app.delete('/api/order-types/:id', async (req, res) => {
 });
 
 // ==========================================
-// [5] 주문 및 일매출 정산 API
+// [4] 주문 및 일매출 정산 API
 // ==========================================
 app.post('/api/orders', async (req, res) => {
   let { store_id, order_type_id, payment_type, total_amount, items, created_at } = req.body;
 
   try {
+    const { data: orderTypes } = await supabase.from('order_types').select('id');
+    if (orderTypes && orderTypes.length > 0) {
+      const exists = orderTypes.some(ot => ot.id === Number(order_type_id));
+      if (!exists) order_type_id = orderTypes[0].id;
+    }
+
     const orderData = {
       order_type_id: Number(order_type_id),
       payment_type: payment_type || '카드',
@@ -288,53 +243,6 @@ app.post('/api/orders', async (req, res) => {
   } catch (err) {
     console.error('주문 저장 에러:', err);
     res.status(500).json({ error: '주문 저장 중 서버 오류가 발생했습니다.', details: err.message });
-  }
-});
-
-app.put('/api/orders/:id', async (req, res) => {
-  const { id } = req.params;
-  const { store_id, order_type_id, payment_type, total_amount, items, created_at } = req.body;
-
-  try {
-    const orderData = {
-      order_type_id: Number(order_type_id),
-      payment_type: payment_type || '카드',
-      total_amount: total_amount
-    };
-
-    if (created_at) orderData.created_at = created_at;
-    if (store_id) orderData.store_id = store_id;
-
-    const { error: updateError } = await supabase
-      .from('orders')
-      .update(orderData)
-      .eq('id', id);
-
-    if (updateError) throw updateError;
-
-    const { error: deleteError } = await supabase
-      .from('order_items')
-      .delete()
-      .eq('order_id', id);
-
-    if (deleteError) throw deleteError;
-
-    if (items && items.length > 0) {
-      const orderItems = items.map(item => ({
-        order_id: id,
-        menu_id: item.menu_id === 0 ? null : item.menu_id,
-        quantity: item.quantity,
-        price: item.price
-      }));
-
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
-      if (itemsError) throw itemsError;
-    }
-
-    res.json({ success: true, message: '주문이 성공적으로 수정되었습니다.' });
-  } catch (err) {
-    console.error('주문 수정 에러:', err);
-    res.status(500).json({ error: '주문 수정 중 서버 오류가 발생했습니다.', details: err.message });
   }
 });
 
@@ -378,7 +286,7 @@ app.delete('/api/orders/:id', async (req, res) => {
 });
 
 // ==========================================
-// [6] 서버 구동 설정
+// [5] 서버 구동 설정
 // ==========================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
