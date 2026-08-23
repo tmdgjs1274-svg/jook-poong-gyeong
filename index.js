@@ -25,11 +25,14 @@ const supabaseKey =
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
-// [1] 메뉴 관련 API
+// [1] 메뉴 관련 API (카테고리 조인 포함)
 // ==========================================
 app.get('/api/menus', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('menus').select('*');
+    const { data, error } = await supabase
+      .from('menus')
+      .select('*, categories(*)')
+      .order('id', { ascending: true });
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -38,9 +41,15 @@ app.get('/api/menus', async (req, res) => {
 });
 
 app.post('/api/menus', async (req, res) => {
-  const { name, price, store_tag } = req.body;
+  const { name, price, store_tag_id, category_id } = req.body;
   try {
-    const { data, error } = await supabase.from('menus').insert([{ name, price, store_tag }]).select();
+    const menuData = {
+      name,
+      price,
+      store_tag_id: store_tag_id || null,
+      category_id: category_id === '' || category_id === undefined ? null : category_id
+    };
+    const { data, error } = await supabase.from('menus').insert([menuData]).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -50,9 +59,15 @@ app.post('/api/menus', async (req, res) => {
 
 app.put('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, price, store_tag } = req.body;
+  const { name, price, store_tag_id, category_id } = req.body;
   try {
-    const { data, error } = await supabase.from('menus').update({ name, price, store_tag }).eq('id', id).select();
+    const menuData = {
+      name,
+      price,
+      store_tag_id: store_tag_id || null,
+      category_id: category_id === '' || category_id === undefined ? null : category_id
+    };
+    const { data, error } = await supabase.from('menus').update(menuData).eq('id', id).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -72,7 +87,67 @@ app.delete('/api/menus/:id', async (req, res) => {
 });
 
 // ==========================================
-// [2] 가게 구분 관리 API (display_order 정렬 적용)
+// [2] 카테고리 관리 API (추가)
+// ==========================================
+app.get('/api/categories', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*')
+      .order('display_order', { ascending: true })
+      .order('id', { ascending: true });
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/categories', async (req, res) => {
+  const { name } = req.body;
+  try {
+    const { data, error } = await supabase
+      .from('categories')
+      .insert([{ name, display_order: 99 }])
+      .select();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/categories/order', async (req, res) => {
+  try {
+    const { items } = req.body; // [{ id, display_order }, ...]
+    for (const item of items) {
+      await supabase
+        .from('categories')
+        .update({ display_order: item.display_order })
+        .eq('id', item.id);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/categories/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    // 카테고리가 삭제될 때 해당 메뉴들의 category_id를 null('카테고리 없음')로 변경
+    await supabase.from('menus').update({ category_id: null }).eq('category_id', id);
+    
+    const { error } = await supabase.from('categories').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// [3] 가게 구분 관리 API
 // ==========================================
 app.get('/api/store-tags', async (req, res) => {
   try {
@@ -101,12 +176,9 @@ app.post('/api/store-tags', async (req, res) => {
 
 app.put('/api/store-tags/order', async (req, res) => {
   try {
-    const { items } = req.body; // [{ id, display_order }, ...]
+    const { items } = req.body;
     for (const item of items) {
-      await supabase
-        .from('store_tags')
-        .update({ display_order: item.display_order })
-        .eq('id', item.id);
+      await supabase.from('store_tags').update({ display_order: item.display_order }).eq('id', item.id);
     }
     res.json({ success: true });
   } catch (err) {
@@ -126,7 +198,7 @@ app.delete('/api/store-tags/:id', async (req, res) => {
 });
 
 // ==========================================
-// [3] 배달 구분 관리 API (display_order 정렬 적용)
+// [4] 배달 구분 관리 API
 // ==========================================
 app.get('/api/order-types', async (req, res) => {
   try {
@@ -155,12 +227,9 @@ app.post('/api/order-types', async (req, res) => {
 
 app.put('/api/order-types/order', async (req, res) => {
   try {
-    const { items } = req.body; // [{ id, display_order }, ...]
+    const { items } = req.body;
     for (const item of items) {
-      await supabase
-        .from('order_types')
-        .update({ display_order: item.display_order })
-        .eq('id', item.id);
+      await supabase.from('order_types').update({ display_order: item.display_order }).eq('id', item.id);
     }
     res.json({ success: true });
   } catch (err) {
@@ -180,7 +249,7 @@ app.delete('/api/order-types/:id', async (req, res) => {
 });
 
 // ==========================================
-// [4] 주문 및 일매출 정산 API
+// [5] 주문 및 일매출 정산 API
 // ==========================================
 app.post('/api/orders', async (req, res) => {
   let { store_id, order_type_id, payment_type, total_amount, items, created_at } = req.body;
@@ -309,7 +378,7 @@ app.delete('/api/orders/:id', async (req, res) => {
 });
 
 // ==========================================
-// [5] 서버 구동 설정
+// [6] 서버 구동 설정
 // ==========================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
