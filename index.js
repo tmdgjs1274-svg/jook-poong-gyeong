@@ -29,7 +29,6 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // ==========================================
 app.get('/api/menus', async (req, res) => {
   try {
-    // 안전하게 전체 메뉴 조회 (외래 키 충돌 방지)
     const { data, error } = await supabase.from('menus').select('*');
     if (error) throw error;
     res.json(data);
@@ -39,7 +38,7 @@ app.get('/api/menus', async (req, res) => {
 });
 
 app.post('/api/menus', async (req, res) => {
-  const { name, price, store_tag_id, category_id } = req.body;
+  const { name, price, store_tag_id, category } = req.body;
   try {
     const { data, error } = await supabase
       .from('menus')
@@ -47,7 +46,7 @@ app.post('/api/menus', async (req, res) => {
         name, 
         price, 
         store_tag_id: store_tag_id || null, 
-        category_id: category_id || null 
+        category: category || null 
       }])
       .select();
     if (error) throw error;
@@ -59,7 +58,7 @@ app.post('/api/menus', async (req, res) => {
 
 app.put('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, price, store_tag_id, category_id } = req.body;
+  const { name, price, store_tag_id, category } = req.body;
   try {
     const { data, error } = await supabase
       .from('menus')
@@ -67,7 +66,7 @@ app.put('/api/menus/:id', async (req, res) => {
         name, 
         price, 
         store_tag_id: store_tag_id || null, 
-        category_id: category_id || null 
+        category: category || null 
       })
       .eq('id', id)
       .select();
@@ -96,7 +95,6 @@ app.get('/api/categories', async (req, res) => {
   try {
     const { data, error } = await supabase.from('categories').select('*');
     if (error) {
-      // 테이블이 아직 없는 경우 빈 배열을 내려주어 프론트엔드 에러 방지
       if (error.code === '42P01') return res.json([]);
       throw error;
     }
@@ -120,7 +118,13 @@ app.post('/api/categories', async (req, res) => {
 app.delete('/api/categories/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    await supabase.from('menus').update({ category_id: null }).eq('category_id', id);
+    // 삭제하려는 카테고리의 이름 조회
+    const { data: catData } = await supabase.from('categories').select('name').eq('id', id).single();
+    if (catData) {
+      // 해당 카테고리를 쓰던 메뉴들의 category를 null('카테고리 없음')로 변경
+      await supabase.from('menus').update({ category: null }).eq('category', catData.name);
+    }
+
     const { error } = await supabase.from('categories').delete().eq('id', id);
     if (error) throw error;
     res.json({ success: true });
