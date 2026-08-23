@@ -108,11 +108,18 @@ app.get('/api/categories', async (req, res) => {
 app.post('/api/categories', async (req, res) => {
   const { name } = req.body;
   try {
+    console.log('--- /api/categories POST 요청 들어옴 ---', { name });
     const { data, error } = await supabase.from('categories').insert([{ name }]).select();
-    if (error) throw error;
+    
+    if (error) {
+      console.error('Supabase categories insert 에러:', error);
+      return res.status(500).json({ error: error.message });
+    }
+    
+    console.log('✅ 카테고리 추가 성공:', data);
     res.json(data);
   } catch (err) {
-    console.error('categories 등록 에러:', err.message);
+    console.error('categories 등록 서버 예외:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
