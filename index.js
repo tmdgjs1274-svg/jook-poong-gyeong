@@ -194,19 +194,26 @@ app.post('/api/categories', async (req, res) => {
   }
 });
 
-// 📌 [수정됨] 카테고리 순서 변경 API (display_order 컬럼 반영)
+// 📌 [수정됨] 카테고리 순서 변경 API (400 에러 유연 대응 및 display_order 매핑)
 app.put('/api/categories/order', async (req, res) => {
-  const { categories } = req.body; // [{ id, display_order }] 형태 배열 기대
   try {
+    const categories = Array.isArray(req.body) ? req.body : (req.body.categories || req.body.order);
+
     if (!Array.isArray(categories)) {
-      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.' });
+      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
     }
 
-    for (const cat of categories) {
+    for (let i = 0; i < categories.length; i++) {
+      const cat = categories[i];
+      const catId = cat.id;
+      const displayOrder = cat.display_order !== undefined ? cat.display_order : (cat.sort_order !== undefined ? cat.sort_order : i);
+
+      if (!catId) continue;
+
       const { error } = await supabase
         .from('categories')
-        .update({ display_order: cat.display_order })
-        .eq('id', cat.id);
+        .update({ display_order: displayOrder })
+        .eq('id', catId);
 
       if (error) throw error;
     }
