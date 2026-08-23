@@ -58,19 +58,24 @@ app.post('/api/menus', async (req, res) => {
 
 app.put('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, price, store_tag_id, category } = req.body;
+  // 1. req.body에서 category_id를 추가로 받아옵니다.
+  const { name, price, store_tag_id, store_tag, category_id, category } = req.body;
+  
   try {
-    console.log('--- /api/menus PUT 요청 들어옴 ---', { id, name, price, store_tag_id, category });
+    console.log('--- /api/menus PUT 요청 들어옴 ---', { id, name, price, store_tag_id, store_tag, category_id, category });
     
-    // 업데이트할 객체 동적 생성 (category가 있으면 넣고, 없으면 기존 값 유지 혹은 null)
+    // 2. updateData 객체에 category_id와 store_tag도 포함시킵니다.
     const updateData = {
       name,
       price,
-      store_tag_id: store_tag_id || null
+      store_tag_id: store_tag_id || null,
+      store_tag: store_tag || null,
+      // 빈 문자열이거나 없으면 null, 값이 있으면 숫자로 변환하여 저장
+      category_id: category_id === '' || category_id === null || category_id === undefined ? null : Number(category_id)
     };
     
     if (category !== undefined) {
-      updateData.category = category; // '기본' 등의 문자열이 들어옴
+      updateData.category = category; 
     }
 
     const { data, error } = await supabase
@@ -80,7 +85,7 @@ app.put('/api/menus/:id', async (req, res) => {
       .select();
 
     if (error) {
-      console.error('Supabase menus update 에러:', error);
+      console.err('Supabase menus update 에러:', error);
       return res.status(500).json({ error: error.message });
     }
 
