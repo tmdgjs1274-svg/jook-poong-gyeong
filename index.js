@@ -60,6 +60,8 @@ app.put('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
   const { name, price, store_tag_id, category } = req.body;
   try {
+    console.log('--- /api/menus PUT 요청 들어옴 ---', { id, name, price, store_tag_id, category });
+    
     const { data, error } = await supabase
       .from('menus')
       .update({ 
@@ -70,9 +72,16 @@ app.put('/api/menus/:id', async (req, res) => {
       })
       .eq('id', id)
       .select();
-    if (error) throw error;
+
+    if (error) {
+      console.error('Supabase menus update 에러:', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    console.log('✅ 메뉴 수정 성공:', data);
     res.json(data);
   } catch (err) {
+    console.error('menus 수정 서버 예외:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
