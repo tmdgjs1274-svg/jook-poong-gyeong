@@ -89,19 +89,47 @@ app.delete('/api/menus/:id', async (req, res) => {
 });
 
 // ==========================================
-// [1-1] 메뉴 카테고리 관리 API (안전 방어 코드)
+// [1-1] 메뉴 카테고리 관리 API
 // ==========================================
 app.get('/api/categories', async (req, res) => {
   try {
     const { data, error } = await supabase.from('categories').select('*');
     if (error) {
       console.error('Supabase categories 조회 경고:', error.message);
-      return res.json([]); // 에러가 나도 500 대신 빈 배열 반환
+      return res.json([]);
     }
     res.json(data || []);
   } catch (err) {
     console.error('categories API 서버 예외:', err.message);
-    res.json([]); // 예외 발생 시에도 빈 배열 반환
+    res.json([]);
+  }
+});
+
+app.post('/api/categories', async (req, res) => {
+  const { name } = req.body;
+  try {
+    const { data, error } = await supabase.from('categories').insert([{ name }]).select();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    console.error('categories 등록 에러:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/categories/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { data: catData } = await supabase.from('categories').select('name').eq('id', id).single();
+    if (catData) {
+      await supabase.from('menus').update({ category: null }).eq('category', catData.name);
+    }
+    const { error } = await supabase.from('categories').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('categories 삭제 에러:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
