@@ -11,7 +11,6 @@ app.get('/', (req, res) => {
   res.send('POS Backend Server is Running!');
 });
 
-// Supabase 클라이언트 설정 (.env 파일 호환성 강화)
 const supabaseUrl =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -23,63 +22,44 @@ const supabaseKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-  console.error("❌ .env 파일의 SUPABASE_URL 또는 SUPABASE_ANON_KEY 설정이 누락되었습니다!");
-}
-
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
-// [1] 메뉴 관련 API (조회, 등록, 수정, 삭제)
+// [1] 메뉴 관련 API
 // ==========================================
-
-// 1-1. 메뉴 목록 조회
 app.get('/api/menus', async (req, res) => {
   try {
     const { data, error } = await supabase.from('menus').select('*');
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('메뉴 조회 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 1-2. 메뉴 등록
 app.post('/api/menus', async (req, res) => {
   const { name, price, store_tag_id } = req.body;
   try {
-    const { data, error } = await supabase
-      .from('menus')
-      .insert([{ name, price, store_tag_id }])
-      .select();
+    const { data, error } = await supabase.from('menus').insert([{ name, price, store_tag_id }]).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('메뉴 추가 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 1-3. 메뉴 수정
 app.put('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
   const { name, price, store_tag_id } = req.body;
   try {
-    const { data, error } = await supabase
-      .from('menus')
-      .update({ name, price, store_tag_id })
-      .eq('id', id)
-      .select();
+    const { data, error } = await supabase.from('menus').update({ name, price, store_tag_id }).eq('id', id).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('메뉴 수정 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 1-4. 메뉴 삭제
 app.delete('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -87,44 +67,34 @@ app.delete('/api/menus/:id', async (req, res) => {
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
-    console.error('메뉴 삭제 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ==========================================
-// [2] 가게 구분 관리 API (조회, 추가, 삭제)
+// [2] 가게 구분 관리 API
 // ==========================================
-
-// 2-1. 가게 구분 목록 조회
 app.get('/api/store-tags', async (req, res) => {
   try {
     const { data, error } = await supabase.from('store_tags').select('*');
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('가게 구분 조회 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2-2. 가게 구분 추가
 app.post('/api/store-tags', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data, error } = await supabase
-      .from('store_tags')
-      .insert([{ name }])
-      .select();
+    const { data, error } = await supabase.from('store_tags').insert([{ name }]).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('가게 구분 추가 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2-3. 가게 구분 삭제
 app.delete('/api/store-tags/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -132,44 +102,34 @@ app.delete('/api/store-tags/:id', async (req, res) => {
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
-    console.error('가게 구분 삭제 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ==========================================
-// [3] 배달 구분 관리 API (조회, 추가, 삭제)
+// [3] 배달 구분 관리 API
 // ==========================================
-
-// 3-1. 배달 구분 목록 조회
 app.get('/api/order-types', async (req, res) => {
   try {
     const { data, error } = await supabase.from('order_types').select('*');
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('배달 구분 조회 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 3-2. 배달 구분 추가
 app.post('/api/order-types', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data, error } = await supabase
-      .from('order_types')
-      .insert([{ name }])
-      .select();
+    const { data, error } = await supabase.from('order_types').insert([{ name }]).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('배달 구분 추가 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 3-3. 배달 구분 삭제
 app.delete('/api/order-types/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -177,7 +137,6 @@ app.delete('/api/order-types/:id', async (req, res) => {
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
-    console.error('배달 구분 삭제 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -185,31 +144,19 @@ app.delete('/api/order-types/:id', async (req, res) => {
 // ==========================================
 // [4] 주문 및 일매출 정산 API
 // ==========================================
-
-// 4-1. 주문 저장 (외래 키 제약 조건 에러 방지 안전 Fallback 로직 포함)
 app.post('/api/orders', async (req, res) => {
-  console.log('--- /api/orders 요청 들어옴 ---', req.body);
-  let { store_id, order_type_id, total_amount, items, created_at } = req.body;
+  let { store_id, order_type_id, payment_type, total_amount, items, created_at } = req.body;
 
   try {
-    // 🔍 DB에 존재하는 유효한 order_type_id 목록 조회
-    const { data: orderTypes, error: otCheckError } = await supabase.from('order_types').select('id');
-    
-    if (otCheckError) {
-      console.warn('⚠️ order_types 조회 실패:', otCheckError);
-    }
-
+    const { data: orderTypes } = await supabase.from('order_types').select('id');
     if (orderTypes && orderTypes.length > 0) {
-      // 프론트에서 보낸 ID가 실제 DB에 존재하는지 확인
       const exists = orderTypes.some(ot => ot.id === Number(order_type_id));
-      if (!exists) {
-        // 존재하지 않는다면 안전하게 첫 번째 유효한 ID로 대체
-        order_type_id = orderTypes[0].id;
-      }
+      if (!exists) order_type_id = orderTypes[0].id;
     }
 
     const orderData = {
       order_type_id: Number(order_type_id),
+      payment_type: payment_type || '카드',
       total_amount: total_amount
     };
 
@@ -222,70 +169,44 @@ app.post('/api/orders', async (req, res) => {
       .select()
       .single();
 
-    if (orderError) {
-      console.error('❌ orders 테이블 저장 에러:', orderError);
-      throw orderError;
-    }
+    if (orderError) throw orderError;
 
     if (items && items.length > 0) {
       const orderItems = items.map(item => ({
         order_id: newOrder.id,
-        menu_id: item.menu_id,
+        menu_id: item.menu_id === 0 ? null : item.menu_id, // 할인의 경우 menu_id가 없을 수 있으므로 안전 처리
         quantity: item.quantity,
         price: item.price
       }));
 
-      const { error: itemsError } = await supabase
-        .from('order_items')
-        .insert(orderItems);
-
-      if (itemsError) {
-        console.error('❌ order_items 테이블 저장 에러:', itemsError);
-        throw itemsError;
-      }
+      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
+      if (itemsError) throw itemsError;
     }
 
-    console.log('✅ 주문 저장 성공! Order ID:', newOrder.id);
     res.json({ success: true, order_id: newOrder.id });
-
   } catch (err) {
-    console.error('❌ [주문 저장 실패 원인]:', err.message || err);
-    res.status(500).json({
-      error: '주문 저장 중 서버 오류가 발생했습니다.',
-      details: err.message || err
-    });
+    console.error('주문 저장 에러:', err);
+    res.status(500).json({ error: '주문 저장 중 서버 오류가 발생했습니다.', details: err.message });
   }
 });
 
-// 4-2. 일매출 날짜 목록 조회
 app.get('/api/sales/dates', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('created_at')
-      .order('created_at', { ascending: false });
-
+    const { data, error } = await supabase.from('orders').select('created_at').order('created_at', { ascending: false });
     if (error) throw error;
-
     const dates = [...new Set(data.map(o => o.created_at.split('T')[0]))];
     res.json(dates);
   } catch (err) {
-    console.error('날짜 목록 조회 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 4-3. 특정 날짜 주문 내역 상세 조회
 app.get('/api/sales/daily', async (req, res) => {
   const { date } = req.query;
   try {
     const { data, error } = await supabase
       .from('orders')
-      .select(`
-        *,
-        order_types(*),
-        order_items(*, menus(*))
-      `)
+      .select(`*, order_types(*), order_items(*, menus(*))`)
       .gte('created_at', `${date}T00:00:00`)
       .lte('created_at', `${date}T23:59:59`)
       .order('id', { ascending: false });
@@ -293,12 +214,10 @@ app.get('/api/sales/daily', async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('일매출 상세 조회 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 4-4. 주문 삭제
 app.delete('/api/orders/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -306,13 +225,9 @@ app.delete('/api/orders/:id', async (req, res) => {
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
-    console.error('주문 삭제 에러:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ==========================================
-// [5] 서버 실행
-// ==========================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
