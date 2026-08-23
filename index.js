@@ -194,6 +194,30 @@ app.post('/api/categories', async (req, res) => {
   }
 });
 
+// 📌 [추가됨] 카테고리 순서 변경 API
+app.put('/api/categories/order', async (req, res) => {
+  const { categories } = req.body; // [{ id, sort_order }] 형태 배열 기대
+  try {
+    if (!Array.isArray(categories)) {
+      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.' });
+    }
+
+    for (const cat of categories) {
+      const { error } = await supabase
+        .from('categories')
+        .update({ sort_order: cat.sort_order }) // DB 테이블의 순서 컬럼명에 맞게 설정하세요
+        .eq('id', cat.id);
+
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('카테고리 순서 변경 에러:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/categories/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -340,7 +364,6 @@ app.get('/api/sales/dates', async (req, res) => {
   }
 });
 
-// 📌 [추가됨] 누락되었던 일매출 상세 조회 API
 app.get('/api/sales/daily', async (req, res) => {
   const { date } = req.query;
   try {
