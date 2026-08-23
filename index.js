@@ -35,6 +35,7 @@ app.get('/api/menus', async (req, res) => {
       .select(`
         *,
         categories (
+          id,
           name,
           store_tag
         )
@@ -55,7 +56,14 @@ app.get('/api/menus', async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    const formattedMenus = data.map(menu => ({
+    // 선택된 가게와 카테고리의 가게 태그가 일치하는지 한 번 더 검증하여 섞임 방지
+    const filteredData = data.filter(menu => {
+      if (!store_tag || store_tag === '전체') return true;
+      if (menu.store_tag && menu.store_tag.trim() !== store_tag.trim()) return false;
+      return true;
+    });
+
+    const formattedMenus = filteredData.map(menu => ({
       ...menu,
       category: menu.categories ? menu.categories.name : (menu.category || '카테고리 없음')
     }));
@@ -74,7 +82,6 @@ app.post('/api/menus', async (req, res) => {
     let resolvedStoreTag = store_tag ? store_tag.trim() : null;
     const parsedCategoryId = category_id === '' || category_id === null || category_id === undefined ? null : Number(category_id);
 
-    // 카테고리 ID가 있으면 카테고리 정보 및 소속된 가게 태그(store_tag)를 유기적으로 가져옴
     if (parsedCategoryId) {
       const { data: catData, error: catError } = await supabase
         .from('categories')
@@ -84,7 +91,6 @@ app.post('/api/menus', async (req, res) => {
       
       if (!catError && catData) {
         categoryName = catData.name;
-        // 카테고리에 지정된 store_tag가 있다면 상위 가게 정보와 싱크를 맞춤
         if (catData.store_tag) {
           resolvedStoreTag = catData.store_tag.trim();
         }
@@ -173,14 +179,13 @@ app.delete('/api/menus/:id', async (req, res) => {
 });
 
 // ==========================================
-// [1-1] 메뉴 카테고리 관리 API (가게별 분기 지원 및 싱크 보완)
+// [1-1] 메뉴 카테고리 관리 API
 // ==========================================
 app.get('/api/categories', async (req, res) => {
   const { store_tag } = req.query;
   try {
     let query = supabase.from('categories').select('*').order('display_order', { ascending: true });
     
-    // 선택된 가게 이름이 존재하고 '전체'가 아닐 경우 정확히 필터링[cite: 10]
     if (store_tag && store_tag !== '전체') {
       query = query.eq('store_tag', store_tag.trim());
     }
