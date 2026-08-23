@@ -156,7 +156,7 @@ app.delete('/api/menus/:id', async (req, res) => {
 app.get('/api/categories', async (req, res) => {
   const { store_tag } = req.query;
   try {
-    let query = supabase.from('categories').select('*');
+    let query = supabase.from('categories').select('*').order('display_order', { ascending: true });
     
     if (store_tag) {
       query = query.eq('store_tag', store_tag);
@@ -179,7 +179,7 @@ app.post('/api/categories', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('categories')
-      .insert([{ name, store_tag: store_tag || null }])
+      .insert([{ name, store_tag: store_tag || null, display_order: 0 }])
       .select();
     
     if (error) {
@@ -194,9 +194,9 @@ app.post('/api/categories', async (req, res) => {
   }
 });
 
-// 📌 [추가됨] 카테고리 순서 변경 API
+// 📌 [수정됨] 카테고리 순서 변경 API (display_order 컬럼 반영)
 app.put('/api/categories/order', async (req, res) => {
-  const { categories } = req.body; // [{ id, sort_order }] 형태 배열 기대
+  const { categories } = req.body; // [{ id, display_order }] 형태 배열 기대
   try {
     if (!Array.isArray(categories)) {
       return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.' });
@@ -205,7 +205,7 @@ app.put('/api/categories/order', async (req, res) => {
     for (const cat of categories) {
       const { error } = await supabase
         .from('categories')
-        .update({ sort_order: cat.sort_order }) // DB 테이블의 순서 컬럼명에 맞게 설정하세요
+        .update({ display_order: cat.display_order })
         .eq('id', cat.id);
 
       if (error) throw error;
