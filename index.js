@@ -41,7 +41,7 @@ app.get('/api/menus', async (req, res) => {
       `);
 
     // 가게 구분 필터 (문자열 혹은 ID 조건이 들어올 경우 정확히 매칭)
-    if (store_tag) {
+    if (store_tag && store_tag !== '전체') {
       query = query.eq('store_tag', store_tag.trim());
     }
     if (store_tag_id) {
@@ -180,8 +180,8 @@ app.get('/api/categories', async (req, res) => {
   try {
     let query = supabase.from('categories').select('*').order('display_order', { ascending: true });
     
-    if (store_tag) {
-      // 공백 및 대소비교 차이로 인한 싱크 오류 방지
+    // 선택된 가게 이름이 존재하고 '전체'가 아닐 경우 정확히 필터링[cite: 10]
+    if (store_tag && store_tag !== '전체') {
       query = query.eq('store_tag', store_tag.trim());
     }
 
