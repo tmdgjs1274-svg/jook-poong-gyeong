@@ -72,11 +72,15 @@ app.delete('/api/menus/:id', async (req, res) => {
 });
 
 // ==========================================
-// [2] 가게 구분 관리 API
+// [2] 가게 구분 관리 API (display_order 정렬 적용)
 // ==========================================
 app.get('/api/store-tags', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('store_tags').select('*');
+    const { data, error } = await supabase
+      .from('store_tags')
+      .select('*')
+      .order('display_order', { ascending: true })
+      .order('id', { ascending: true });
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -87,7 +91,7 @@ app.get('/api/store-tags', async (req, res) => {
 app.post('/api/store-tags', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data, error } = await supabase.from('store_tags').insert([{ name }]).select();
+    const { data, error } = await supabase.from('store_tags').insert([{ name, display_order: 99 }]).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -95,12 +99,14 @@ app.post('/api/store-tags', async (req, res) => {
   }
 });
 
-// 가게 구분 순서 저장 API 추가
 app.put('/api/store-tags/order', async (req, res) => {
   try {
     const { items } = req.body; // [{ id, display_order }, ...]
     for (const item of items) {
-      await supabase.from('store_tags').update({ display_order: item.display_order }).eq('id', item.id);
+      await supabase
+        .from('store_tags')
+        .update({ display_order: item.display_order })
+        .eq('id', item.id);
     }
     res.json({ success: true });
   } catch (err) {
@@ -120,11 +126,15 @@ app.delete('/api/store-tags/:id', async (req, res) => {
 });
 
 // ==========================================
-// [3] 배달 구분 관리 API
+// [3] 배달 구분 관리 API (display_order 정렬 적용)
 // ==========================================
 app.get('/api/order-types', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('order_types').select('*');
+    const { data, error } = await supabase
+      .from('order_types')
+      .select('*')
+      .order('display_order', { ascending: true })
+      .order('id', { ascending: true });
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -135,7 +145,7 @@ app.get('/api/order-types', async (req, res) => {
 app.post('/api/order-types', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data, error } = await supabase.from('order_types').insert([{ name }]).select();
+    const { data, error } = await supabase.from('order_types').insert([{ name, display_order: 99 }]).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -143,12 +153,14 @@ app.post('/api/order-types', async (req, res) => {
   }
 });
 
-// 배달 구분 순서 저장 API 추가
 app.put('/api/order-types/order', async (req, res) => {
   try {
     const { items } = req.body; // [{ id, display_order }, ...]
     for (const item of items) {
-      await supabase.from('order_types').update({ display_order: item.display_order }).eq('id', item.id);
+      await supabase
+        .from('order_types')
+        .update({ display_order: item.display_order })
+        .eq('id', item.id);
     }
     res.json({ success: true });
   } catch (err) {
@@ -210,7 +222,6 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-// 주문 수정 API 추가
 app.put('/api/orders/:id', async (req, res) => {
   const { id } = req.params;
   const { store_id, order_type_id, payment_type, total_amount, items, created_at } = req.body;
@@ -225,7 +236,6 @@ app.put('/api/orders/:id', async (req, res) => {
     if (created_at) orderData.created_at = created_at;
     if (store_id) orderData.store_id = store_id;
 
-    // 1. 주문 기본 정보 수정
     const { error: updateError } = await supabase
       .from('orders')
       .update(orderData)
@@ -233,7 +243,6 @@ app.put('/api/orders/:id', async (req, res) => {
 
     if (updateError) throw updateError;
 
-    // 2. 기존 주문 아이템 삭제 후 새 아이템으로 재등록
     const { error: deleteError } = await supabase
       .from('order_items')
       .delete()
