@@ -29,10 +29,31 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // ==========================================
 app.get('/api/menus', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('menus').select('*');
-    if (error) throw error;
-    res.json(data);
+    // menus 테이블을 가져올 때 categories 테이블의 name도 함께 가져옵니다 (Supabase 조인 문법)
+    const { data, error } = await supabase
+      .from('menus')
+      .select(`
+        *,
+        categories (
+          name
+        )
+      `);
+
+    if (error) {
+      console.error('메뉴 목록 조회 에러:', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    // 프론트엔드가 편하게 쓸 수 있도록 데이터 가공 (categories 조인 결과를 category 이름으로 매핑)
+    const formattedMenus = data.map(menu => ({
+      ...menu,
+      // categories 테이블에서 가져온 이름이 있으면 그 쓴다, 없으면 기존 category 컬럼 사용
+      category: menu.categories ? menu.categories.name : (menu.category || '카테고리 없음')
+    }));
+
+    res.json(formattedMenus);
   } catch (err) {
+    console.error('메뉴 목록 조회 서버 예외:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
