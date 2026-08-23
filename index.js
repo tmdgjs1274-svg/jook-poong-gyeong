@@ -194,10 +194,13 @@ app.post('/api/categories', async (req, res) => {
   }
 });
 
-// 📌 [수정됨] 카테고리 순서 변경 API (400 에러 유연 대응 및 display_order 매핑)
+// 📌 [수정됨] 카테고리 순서 변경 API ({ items: [...] } 구조 대응)
 app.put('/api/categories/order', async (req, res) => {
   try {
-    const categories = Array.isArray(req.body) ? req.body : (req.body.categories || req.body.order);
+    // req.body 자체가 배열이거나, { items: [...] }, { categories: [...] }, { order: [...] } 형태일 때 모두 추출
+    const categories = Array.isArray(req.body) 
+      ? req.body 
+      : (req.body.items || req.body.categories || req.body.order);
 
     if (!Array.isArray(categories)) {
       return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
