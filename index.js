@@ -29,8 +29,8 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // ==========================================
 app.get('/api/menus', async (req, res) => {
   try {
-    // 카테고리 정보도 함께 조회하도록 수정
-    const { data, error } = await supabase.from('menus').select('*, categories(*)');
+    // 안전하게 전체 메뉴 조회 (외래 키 충돌 방지)
+    const { data, error } = await supabase.from('menus').select('*');
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -46,7 +46,7 @@ app.post('/api/menus', async (req, res) => {
       .insert([{ 
         name, 
         price, 
-        store_tag_id, 
+        store_tag_id: store_tag_id || null, 
         category_id: category_id || null 
       }])
       .select();
@@ -66,7 +66,7 @@ app.put('/api/menus/:id', async (req, res) => {
       .update({ 
         name, 
         price, 
-        store_tag_id, 
+        store_tag_id: store_tag_id || null, 
         category_id: category_id || null 
       })
       .eq('id', id)
@@ -90,12 +90,16 @@ app.delete('/api/menus/:id', async (req, res) => {
 });
 
 // ==========================================
-// [1-1] 메뉴 카테고리 관리 API (신규 추가)
+// [1-1] 메뉴 카테고리 관리 API
 // ==========================================
 app.get('/api/categories', async (req, res) => {
   try {
     const { data, error } = await supabase.from('categories').select('*');
-    if (error) throw error;
+    if (error) {
+      // 테이블이 아직 없는 경우 빈 배열을 내려주어 프론트엔드 에러 방지
+      if (error.code === '42P01') return res.json([]);
+      throw error;
+    }
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -116,9 +120,7 @@ app.post('/api/categories', async (req, res) => {
 app.delete('/api/categories/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    // 카테고리가 삭제될 경우 해당 메뉴의 category_id를 null('카테고리 없음')로 업데이트 처리
     await supabase.from('menus').update({ category_id: null }).eq('category_id', id);
-
     const { error } = await supabase.from('categories').delete().eq('id', id);
     if (error) throw error;
     res.json({ success: true });
