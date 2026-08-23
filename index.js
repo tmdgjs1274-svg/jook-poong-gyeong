@@ -154,7 +154,7 @@ app.delete('/api/menus/:id', async (req, res) => {
 // [1-1] 메뉴 카테고리 관리 API (가게별 분기 지원)
 // ==========================================
 app.get('/api/categories', async (req, res) => {
-  const { store_tag } = req.query; // 프론트엔드에서 특정 가게의 카테고리를 요청할 때 사용
+  const { store_tag } = req.query;
   try {
     let query = supabase.from('categories').select('*');
     
@@ -335,6 +335,35 @@ app.get('/api/sales/dates', async (req, res) => {
     if (error) throw error;
     const dates = [...new Set(data.map(o => o.created_at.split('T')[0]))];
     res.json(dates);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 📌 [추가됨] 누락되었던 일매출 상세 조회 API
+app.get('/api/sales/daily', async (req, res) => {
+  const { date } = req.query;
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`*, order_types(*), order_items(*, menus(*))`)
+      .gte('created_at', `${date}T00:00:00`)
+      .lte('created_at', `${date}T23:59:59`)
+      .order('id', { ascending: false });
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/orders/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { error } = await supabase.from('orders').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
