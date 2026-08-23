@@ -108,7 +108,7 @@ app.get('/api/store-tags', async (req, res) => {
   }
 });
 
-// 2-2. 가게 구분 추가 (404 에러 해결)
+// 2-2. 가게 구분 추가
 app.post('/api/store-tags', async (req, res) => {
   const { name } = req.body;
   try {
@@ -124,7 +124,7 @@ app.post('/api/store-tags', async (req, res) => {
   }
 });
 
-// 2-3. 가게 구분 삭제 (404 에러 해결)
+// 2-3. 가게 구분 삭제
 app.delete('/api/store-tags/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -153,7 +153,7 @@ app.get('/api/order-types', async (req, res) => {
   }
 });
 
-// 3-2. 배달 구분 추가 (404 에러 해결)
+// 3-2. 배달 구분 추가
 app.post('/api/order-types', async (req, res) => {
   const { name } = req.body;
   try {
@@ -169,7 +169,7 @@ app.post('/api/order-types', async (req, res) => {
   }
 });
 
-// 3-3. 배달 구분 삭제 (404 에러 해결)
+// 3-3. 배달 구분 삭제
 app.delete('/api/order-types/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -186,12 +186,20 @@ app.delete('/api/order-types/:id', async (req, res) => {
 // [4] 주문 및 일매출 정산 API
 // ==========================================
 
-// 4-1. 주문 저장
+// 4-1. 주문 저장 (안전 변환 로직 포함)
 app.post('/api/orders', async (req, res) => {
   console.log('--- /api/orders 요청 들어옴 ---', req.body);
-  const { store_id, order_type_id, total_amount, items, created_at } = req.body;
+  let { store_id, order_type_id, total_amount, items, created_at } = req.body;
 
   try {
+    // 🔍 order_type_id가 문자열(이름)로 넘어오는 경우 안전하게 ID 숫자로 매핑
+    if (order_type_id === '배달의민족' || order_type_id === '배민') order_type_id = 5;
+    else if (order_type_id === '쿠팡이즈') order_type_id = 6;
+    else if (order_type_id === '매장') order_type_id = 7;
+    else {
+      order_type_id = Number(order_type_id);
+    }
+
     const orderData = {
       order_type_id: order_type_id,
       total_amount: total_amount
