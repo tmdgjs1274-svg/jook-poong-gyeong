@@ -29,7 +29,6 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // ==========================================
 app.get('/api/menus', async (req, res) => {
   try {
-    // menus 테이블을 가져올 때 categories 테이블의 name도 함께 가져옵니다 (Supabase 조인 문법)
     const { data, error } = await supabase
       .from('menus')
       .select(`
@@ -44,10 +43,8 @@ app.get('/api/menus', async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    // 프론트엔드가 편하게 쓸 수 있도록 데이터 가공 (categories 조인 결과를 category 이름으로 매핑)
     const formattedMenus = data.map(menu => ({
       ...menu,
-      // categories 테이블에서 가져온 이름이 있으면 그 쓴다, 없으면 기존 category 컬럼 사용
       category: menu.categories ? menu.categories.name : (menu.category || '카테고리 없음')
     }));
 
@@ -59,35 +56,11 @@ app.get('/api/menus', async (req, res) => {
 });
 
 app.post('/api/menus', async (req, res) => {
-  const { name, price, store_tag_id, category } = req.body;
+  const { name, price, store_tag_id, store_tag, category_id, category } = req.body;
   try {
-    const { data, error } = await supabase
-      .from('menus')
-      .insert([{ 
-        name, 
-        price, 
-        store_tag_id: store_tag_id || null, 
-        category: category || null 
-      }])
-      .select();
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/menus/:id', async (req, res) => {
-  const { id } = req.params;
-  const { name, price, store_tag_id, store_tag, category_id } = req.body;
-  
-  try {
-    console.log('--- /api/menus PUT 요청 들어옴 ---', { id, name, price, store_tag_id, store_tag, category_id });
-    
     let categoryName = null;
     const parsedCategoryId = category_id === '' || category_id === null || category_id === undefined ? null : Number(category_id);
 
-    // category_id가 존재한다면 categories 테이블에서 실제 이름(name)을 조회해옵니다.
     if (parsedCategoryId) {
       const { data: catData, error: catError } = await supabase
         .from('categories')
@@ -100,14 +73,52 @@ app.put('/api/menus/:id', async (req, res) => {
       }
     }
 
-    // 업데이트할 데이터 구성
+    const { data, error } = await supabase
+      .from('menus')
+      .insert([{ 
+        name, 
+        price, 
+        store_tag_id: store_tag_id || null, 
+        store_tag: store_tag || null,
+        category_id: parsedCategoryId,
+        category: categoryName || category || null 
+      }])
+      .select();
+      
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/menus/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, price, store_tag_id, store_tag, category_id } = req.body;
+  
+  try {
+    let categoryName = null;
+    const parsedCategoryId = category_id === '' || category_id === null || category_id === undefined ? null : Number(category_id);
+
+    if (parsedCategoryId) {
+      const { data: catData, error: catError } = await supabase
+        .from('categories')
+        .select('name')
+        .eq('id', parsedCategoryId)
+        .single();
+      
+      if (!catError && catData) {
+        categoryName = catData.name;
+      }
+    }
+
     const updateData = {
       name,
       price,
       store_tag_id: store_tag_id || null,
       store_tag: store_tag || null,
       category_id: parsedCategoryId,
-      category: categoryName // 조회해온 카테고리 이름을 넣어줌!
+      category: categoryName
     };
 
     const { data, error } = await supabase
@@ -121,7 +132,6 @@ app.put('/api/menus/:id', async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    console.log('✅ 메뉴 수정 성공:', data);
     res.json(data);
   } catch (err) {
     console.error('menus 수정 서버 예외:', err.message);
@@ -141,11 +151,18 @@ app.delete('/api/menus/:id', async (req, res) => {
 });
 
 // ==========================================
-// [1-1] 메뉴 카테고리 관리 API
+// [1-1] 메뉴 카테고리 관리 API (가게별 분기 지원)
 // ==========================================
 app.get('/api/categories', async (req, res) => {
+  const { store_tag } = req.query; // 프론트엔드에서 특정 가게의 카테고리를 요청할 때 사용
   try {
-    const { data, error } = await supabase.from('categories').select('*');
+    let query = supabase.from('categories').select('*');
+    
+    if (store_tag) {
+      query = query.eq('store_tag', store_tag);
+    }
+
+    const { data, error } = await query;
     if (error) {
       console.error('Supabase categories 조회 경고:', error.message);
       return res.json([]);
@@ -158,17 +175,18 @@ app.get('/api/categories', async (req, res) => {
 });
 
 app.post('/api/categories', async (req, res) => {
-  const { name } = req.body;
+  const { name, store_tag } = req.body;
   try {
-    console.log('--- /api/categories POST 요청 들어옴 ---', { name });
-    const { data, error } = await supabase.from('categories').insert([{ name }]).select();
+    const { data, error } = await supabase
+      .from('categories')
+      .insert([{ name, store_tag: store_tag || null }])
+      .select();
     
     if (error) {
       console.error('Supabase categories insert 에러:', error);
       return res.status(500).json({ error: error.message });
     }
     
-    console.log('✅ 카테고리 추가 성공:', data);
     res.json(data);
   } catch (err) {
     console.error('categories 등록 서버 예외:', err.message);
@@ -181,7 +199,7 @@ app.delete('/api/categories/:id', async (req, res) => {
   try {
     const { data: catData } = await supabase.from('categories').select('name').eq('id', id).single();
     if (catData) {
-      await supabase.from('menus').update({ category: null }).eq('category', catData.name);
+      await supabase.from('menus').update({ category: null, category_id: null }).eq('category', catData.name);
     }
     const { error } = await supabase.from('categories').delete().eq('id', id);
     if (error) throw error;
@@ -317,34 +335,6 @@ app.get('/api/sales/dates', async (req, res) => {
     if (error) throw error;
     const dates = [...new Set(data.map(o => o.created_at.split('T')[0]))];
     res.json(dates);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/sales/daily', async (req, res) => {
-  const { date } = req.query;
-  try {
-    const { data, error } = await supabase
-      .from('orders')
-      .select(`*, order_types(*), order_items(*, menus(*))`)
-      .gte('created_at', `${date}T00:00:00`)
-      .lte('created_at', `${date}T23:59:59`)
-      .order('id', { ascending: false });
-
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/orders/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const { error } = await supabase.from('orders').delete().eq('id', id);
-    if (error) throw error;
-    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
