@@ -62,14 +62,20 @@ app.put('/api/menus/:id', async (req, res) => {
   try {
     console.log('--- /api/menus PUT 요청 들어옴 ---', { id, name, price, store_tag_id, category });
     
+    // 업데이트할 객체 동적 생성 (category가 있으면 넣고, 없으면 기존 값 유지 혹은 null)
+    const updateData = {
+      name,
+      price,
+      store_tag_id: store_tag_id || null
+    };
+    
+    if (category !== undefined) {
+      updateData.category = category; // '기본' 등의 문자열이 들어옴
+    }
+
     const { data, error } = await supabase
       .from('menus')
-      .update({ 
-        name, 
-        price, 
-        store_tag_id: store_tag_id || null, 
-        category: category || null 
-      })
+      .update(updateData)
       .eq('id', id)
       .select();
 
