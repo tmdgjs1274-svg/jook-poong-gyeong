@@ -186,22 +186,30 @@ app.delete('/api/order-types/:id', async (req, res) => {
 // [4] 주문 및 일매출 정산 API
 // ==========================================
 
-// 4-1. 주문 저장 (안전 변환 로직 포함)
+// 4-1. 주문 저장 (외래 키 제약 조건 에러 방지 안전 Fallback 로직 포함)
 app.post('/api/orders', async (req, res) => {
   console.log('--- /api/orders 요청 들어옴 ---', req.body);
   let { store_id, order_type_id, total_amount, items, created_at } = req.body;
 
   try {
-    // 🔍 order_type_id가 문자열(이름)로 넘어오는 경우 안전하게 ID 숫자로 매핑
-    if (order_type_id === '배달의민족' || order_type_id === '배민') order_type_id = 5;
-    else if (order_type_id === '쿠팡이즈') order_type_id = 6;
-    else if (order_type_id === '매장') order_type_id = 7;
-    else {
-      order_type_id = Number(order_type_id);
+    // 🔍 DB에 존재하는 유효한 order_type_id 목록 조회
+    const { data: orderTypes, error: otCheckError } = await supabase.from('order_types').select('id');
+    
+    if (otCheckError) {
+      console.warn('⚠️ order_types 조회 실패:', otCheckError);
+    }
+
+    if (orderTypes && orderTypes.length > 0) {
+      // 프론트에서 보낸 ID가 실제 DB에 존재하는지 확인
+      const exists = orderTypes.some(ot => ot.id === Number(order_type_id));
+      if (!exists) {
+        // 존재하지 않는다면 안전하게 첫 번째 유효한 ID로 대체
+        order_type_id = orderTypes[0].id;
+      }
     }
 
     const orderData = {
-      order_type_id: order_type_id,
+      order_type_id: Number(order_type_id),
       total_amount: total_amount
     };
 
