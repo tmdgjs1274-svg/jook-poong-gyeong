@@ -28,15 +28,27 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // [1] 메뉴 관련 API
 // ==========================================
 app.get('/api/menus', async (req, res) => {
+  const { store_tag, store_tag_id } = req.query;
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('menus')
       .select(`
         *,
         categories (
-          name
+          name,
+          store_tag
         )
       `);
+
+    // 가게 구분 필터 (문자열 혹은 ID 조건이 들어올 경우 정확히 매칭)
+    if (store_tag) {
+      query = query.eq('store_tag', store_tag.trim());
+    }
+    if (store_tag_id) {
+      query = query.eq('store_tag_id', Number(store_tag_id));
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('메뉴 목록 조회 에러:', error);
@@ -59,17 +71,23 @@ app.post('/api/menus', async (req, res) => {
   const { name, price, store_tag_id, store_tag, category_id, category } = req.body;
   try {
     let categoryName = null;
+    let resolvedStoreTag = store_tag ? store_tag.trim() : null;
     const parsedCategoryId = category_id === '' || category_id === null || category_id === undefined ? null : Number(category_id);
 
+    // 카테고리 ID가 있으면 카테고리 정보 및 소속된 가게 태그(store_tag)를 유기적으로 가져옴
     if (parsedCategoryId) {
       const { data: catData, error: catError } = await supabase
         .from('categories')
-        .select('name')
+        .select('name, store_tag')
         .eq('id', parsedCategoryId)
         .single();
       
       if (!catError && catData) {
         categoryName = catData.name;
+        // 카테고리에 지정된 store_tag가 있다면 상위 가게 정보와 싱크를 맞춤
+        if (catData.store_tag) {
+          resolvedStoreTag = catData.store_tag.trim();
+        }
       }
     }
 
@@ -78,8 +96,8 @@ app.post('/api/menus', async (req, res) => {
       .insert([{ 
         name, 
         price, 
-        store_tag_id: store_tag_id || null, 
-        store_tag: store_tag ? store_tag.trim() : null,
+        store_tag_id: store_tag_id ? Number(store_tag_id) : null, 
+        store_tag: resolvedStoreTag,
         category_id: parsedCategoryId,
         category: categoryName || category || null 
       }])
@@ -98,25 +116,29 @@ app.put('/api/menus/:id', async (req, res) => {
   
   try {
     let categoryName = null;
+    let resolvedStoreTag = store_tag ? store_tag.trim() : null;
     const parsedCategoryId = category_id === '' || category_id === null || category_id === undefined ? null : Number(category_id);
 
     if (parsedCategoryId) {
       const { data: catData, error: catError } = await supabase
         .from('categories')
-        .select('name')
+        .select('name, store_tag')
         .eq('id', parsedCategoryId)
         .single();
       
       if (!catError && catData) {
         categoryName = catData.name;
+        if (catData.store_tag) {
+          resolvedStoreTag = catData.store_tag.trim();
+        }
       }
     }
 
     const updateData = {
       name,
       price,
-      store_tag_id: store_tag_id || null,
-      store_tag: store_tag ? store_tag.trim() : null,
+      store_tag_id: store_tag_id ? Number(store_tag_id) : null,
+      store_tag: resolvedStoreTag,
       category_id: parsedCategoryId,
       category: categoryName
     };
@@ -159,7 +181,7 @@ app.get('/api/categories', async (req, res) => {
     let query = supabase.from('categories').select('*').order('display_order', { ascending: true });
     
     if (store_tag) {
-      // 공백 차이로 인한 싱크 오류를 방지하기 위해 trim() 적용
+      // 공백 및 대소비교 차이로 인한 싱크 오류 방지
       query = query.eq('store_tag', store_tag.trim());
     }
 
