@@ -194,10 +194,8 @@ app.post('/api/categories', async (req, res) => {
   }
 });
 
-// 📌 [수정됨] 카테고리 순서 변경 API ({ items: [...] } 구조 대응)
 app.put('/api/categories/order', async (req, res) => {
   try {
-    // req.body 자체가 배열이거나, { items: [...] }, { categories: [...] }, { order: [...] } 형태일 때 모두 추출
     const categories = Array.isArray(req.body) 
       ? req.body 
       : (req.body.items || req.body.categories || req.body.order);
@@ -249,7 +247,7 @@ app.delete('/api/categories/:id', async (req, res) => {
 // ==========================================
 app.get('/api/store-tags', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('store_tags').select('*');
+    const { data, error } = await supabase.from('store_tags').select('*').order('display_order', { ascending: true });
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -260,10 +258,42 @@ app.get('/api/store-tags', async (req, res) => {
 app.post('/api/store-tags', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data, error } = await supabase.from('store_tags').insert([{ name }]).select();
+    const { data, error } = await supabase.from('store_tags').insert([{ name, display_order: 0 }]).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/store-tags/order', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body) 
+      ? req.body 
+      : (req.body.items || req.body.store_tags || req.body.order);
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
+    }
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const itemId = item.id;
+      const displayOrder = item.display_order !== undefined ? item.display_order : (item.sort_order !== undefined ? item.sort_order : i);
+
+      if (!itemId) continue;
+
+      const { error } = await supabase
+        .from('store_tags')
+        .update({ display_order: displayOrder })
+        .eq('id', itemId);
+
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('가게 구분 순서 변경 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -284,7 +314,7 @@ app.delete('/api/store-tags/:id', async (req, res) => {
 // ==========================================
 app.get('/api/order-types', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('order_types').select('*');
+    const { data, error } = await supabase.from('order_types').select('*').order('display_order', { ascending: true });
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -295,10 +325,42 @@ app.get('/api/order-types', async (req, res) => {
 app.post('/api/order-types', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data, error } = await supabase.from('order_types').insert([{ name }]).select();
+    const { data, error } = await supabase.from('order_types').insert([{ name, display_order: 0 }]).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/order-types/order', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body) 
+      ? req.body 
+      : (req.body.items || req.body.order_types || req.body.order);
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
+    }
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const itemId = item.id;
+      const displayOrder = item.display_order !== undefined ? item.display_order : (item.sort_order !== undefined ? item.sort_order : i);
+
+      if (!itemId) continue;
+
+      const { error } = await supabase
+        .from('order_types')
+        .update({ display_order: displayOrder })
+        .eq('id', itemId);
+
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('배달 구분 순서 변경 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
