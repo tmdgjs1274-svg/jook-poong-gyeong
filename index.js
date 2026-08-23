@@ -58,24 +58,36 @@ app.post('/api/menus', async (req, res) => {
 
 app.put('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, price, store_tag_id, store_tag, category_id, category } = req.body;
+  const { name, price, store_tag_id, store_tag, category_id } = req.body;
   
   try {
-    console.log('--- /api/menus PUT 요청 들어옴 ---', { id, name, price, store_tag_id, store_tag, category_id, category });
+    console.log('--- /api/menus PUT 요청 들어옴 ---', { id, name, price, store_tag_id, store_tag, category_id });
     
-    // 1. 기본 업데이트 객체 생성
+    let categoryName = null;
+    const parsedCategoryId = category_id === '' || category_id === null || category_id === undefined ? null : Number(category_id);
+
+    // category_id가 존재한다면 categories 테이블에서 실제 이름(name)을 조회해옵니다.
+    if (parsedCategoryId) {
+      const { data: catData, error: catError } = await supabase
+        .from('categories')
+        .select('name')
+        .eq('id', parsedCategoryId)
+        .single();
+      
+      if (!catError && catData) {
+        categoryName = catData.name;
+      }
+    }
+
+    // 업데이트할 데이터 구성
     const updateData = {
       name,
       price,
       store_tag_id: store_tag_id || null,
       store_tag: store_tag || null,
-      category_id: category_id === '' || category_id === null || category_id === undefined ? null : Number(category_id)
+      category_id: parsedCategoryId,
+      category: categoryName // 조회해온 카테고리 이름을 넣어줌!
     };
-    
-    // 2. category가 명시적으로 존재할 때만 업데이트 객체에 추가 (없으면 기존 DB 값 보호)
-    if (category !== undefined && category !== null && category !== '') {
-      updateData.category = category; 
-    }
 
     const { data, error } = await supabase
       .from('menus')
