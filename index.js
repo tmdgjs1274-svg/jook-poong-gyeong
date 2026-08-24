@@ -25,7 +25,7 @@ const supabaseKey =
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
-// [1] 메뉴 관련 API
+// [1] 메뉴 관련 API (options 포함)
 // ==========================================
 app.get('/api/menus', async (req, res) => {
   const { store_tag, store_tag_id } = req.query;
@@ -41,7 +41,6 @@ app.get('/api/menus', async (req, res) => {
         )
       `);
 
-    // 가게 구분 필터 (문자열 혹은 ID 조건이 들어올 경우 정확히 매칭)
     if (store_tag && store_tag !== '전체') {
       query = query.eq('store_tag', store_tag.trim());
     }
@@ -56,7 +55,6 @@ app.get('/api/menus', async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    // 선택된 가게와 카테고리의 가게 태그가 일치하는지 한 번 더 검증하여 섞임 방지
     const filteredData = data.filter(menu => {
       if (!store_tag || store_tag === '전체') return true;
       if (menu.store_tag && menu.store_tag.trim() !== store_tag.trim()) return false;
@@ -65,7 +63,8 @@ app.get('/api/menus', async (req, res) => {
 
     const formattedMenus = filteredData.map(menu => ({
       ...menu,
-      category: menu.categories ? menu.categories.name : (menu.category || '카테고리 없음')
+      category: menu.categories ? menu.categories.name : (menu.category || '카테고리 없음'),
+      options: menu.options || []
     }));
 
     res.json(formattedMenus);
@@ -76,7 +75,7 @@ app.get('/api/menus', async (req, res) => {
 });
 
 app.post('/api/menus', async (req, res) => {
-  const { name, price, store_tag_id, store_tag, category_id, category } = req.body;
+  const { name, price, store_tag_id, store_tag, category_id, category, options } = req.body;
   try {
     let categoryName = null;
     let resolvedStoreTag = store_tag ? store_tag.trim() : null;
@@ -105,7 +104,8 @@ app.post('/api/menus', async (req, res) => {
         store_tag_id: store_tag_id ? Number(store_tag_id) : null, 
         store_tag: resolvedStoreTag,
         category_id: parsedCategoryId,
-        category: categoryName || category || null 
+        category: categoryName || category || null,
+        options: options || []
       }])
       .select();
       
@@ -118,7 +118,7 @@ app.post('/api/menus', async (req, res) => {
 
 app.put('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, price, store_tag_id, store_tag, category_id } = req.body;
+  const { name, price, store_tag_id, store_tag, category_id, options } = req.body;
   
   try {
     let categoryName = null;
@@ -146,7 +146,8 @@ app.put('/api/menus/:id', async (req, res) => {
       store_tag_id: store_tag_id ? Number(store_tag_id) : null,
       store_tag: resolvedStoreTag,
       category_id: parsedCategoryId,
-      category: categoryName
+      category: categoryName,
+      options: options || []
     };
 
     const { data, error } = await supabase
@@ -210,46 +211,26 @@ app.post('/api/categories', async (req, res) => {
       .insert([{ name, store_tag: store_tag ? store_tag.trim() : null, display_order: 0 }])
       .select();
     
-    if (error) {
-      console.error('Supabase categories insert 에러:', error);
-      return res.status(500).json({ error: error.message });
-    }
-    
+    if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('categories 등록 서버 예외:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.put('/api/categories/order', async (req, res) => {
   try {
-    const categories = Array.isArray(req.body) 
-      ? req.body 
-      : (req.body.items || req.body.categories || req.body.order);
-
-    if (!Array.isArray(categories)) {
-      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
-    }
+    const categories = Array.isArray(req.body) ? req.body : (req.body.items || req.body.categories || req.body.order);
+    if (!Array.isArray(categories)) return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.' });
 
     for (let i = 0; i < categories.length; i++) {
       const cat = categories[i];
-      const catId = cat.id;
-      const displayOrder = cat.display_order !== undefined ? cat.display_order : (cat.sort_order !== undefined ? cat.sort_order : i);
-
-      if (!catId) continue;
-
-      const { error } = await supabase
-        .from('categories')
-        .update({ display_order: displayOrder })
-        .eq('id', catId);
-
-      if (error) throw error;
+      if (!cat.id) continue;
+      const displayOrder = cat.display_order !== undefined ? cat.display_order : i;
+      await supabase.from('categories').update({ display_order: displayOrder }).eq('id', cat.id);
     }
-
     res.json({ success: true });
   } catch (err) {
-    console.error('카테고리 순서 변경 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -265,7 +246,6 @@ app.delete('/api/categories/:id', async (req, res) => {
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
-    console.error('categories 삭제 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -296,32 +276,17 @@ app.post('/api/store-tags', async (req, res) => {
 
 app.put('/api/store-tags/order', async (req, res) => {
   try {
-    const items = Array.isArray(req.body) 
-      ? req.body 
-      : (req.body.items || req.body.store_tags || req.body.order);
-
-    if (!Array.isArray(items)) {
-      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
-    }
+    const items = Array.isArray(req.body) ? req.body : (req.body.items || req.body.store_tags || req.body.order);
+    if (!Array.isArray(items)) return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.' });
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      const itemId = item.id;
-      const displayOrder = item.display_order !== undefined ? item.display_order : (item.sort_order !== undefined ? item.sort_order : i);
-
-      if (!itemId) continue;
-
-      const { error } = await supabase
-        .from('store_tags')
-        .update({ display_order: displayOrder })
-        .eq('id', itemId);
-
-      if (error) throw error;
+      if (!item.id) continue;
+      const displayOrder = item.display_order !== undefined ? item.display_order : i;
+      await supabase.from('store_tags').update({ display_order: displayOrder }).eq('id', item.id);
     }
-
     res.json({ success: true });
   } catch (err) {
-    console.error('가게 구분 순서 변경 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -363,32 +328,17 @@ app.post('/api/order-types', async (req, res) => {
 
 app.put('/api/order-types/order', async (req, res) => {
   try {
-    const items = Array.isArray(req.body) 
-      ? req.body 
-      : (req.body.items || req.body.order_types || req.body.order);
-
-    if (!Array.isArray(items)) {
-      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
-    }
+    const items = Array.isArray(req.body) ? req.body : (req.body.items || req.body.order_types || req.body.order);
+    if (!Array.isArray(items)) return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.' });
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      const itemId = item.id;
-      const displayOrder = item.display_order !== undefined ? item.display_order : (item.sort_order !== undefined ? item.sort_order : i);
-
-      if (!itemId) continue;
-
-      const { error } = await supabase
-        .from('order_types')
-        .update({ display_order: displayOrder })
-        .eq('id', itemId);
-
-      if (error) throw error;
+      if (!item.id) continue;
+      const displayOrder = item.display_order !== undefined ? item.display_order : i;
+      await supabase.from('order_types').update({ display_order: displayOrder }).eq('id', item.id);
     }
-
     res.json({ success: true });
   } catch (err) {
-    console.error('배달 구분 순서 변경 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -405,7 +355,7 @@ app.delete('/api/order-types/:id', async (req, res) => {
 });
 
 // ==========================================
-// [4] 주문 및 일매출 정산 API
+// [4] 주문 및 일매출 정산 API (옵션 정보 저장 포함)
 // ==========================================
 app.post('/api/orders', async (req, res) => {
   let { store_id, order_type_id, payment_type, total_amount, items, created_at } = req.body;
@@ -439,7 +389,8 @@ app.post('/api/orders', async (req, res) => {
         order_id: newOrder.id,
         menu_id: item.menu_id === 0 ? null : item.menu_id,
         quantity: item.quantity,
-        price: item.price
+        price: item.price,
+        selected_options: item.selected_options ? JSON.stringify(item.selected_options) : null
       }));
 
       const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
