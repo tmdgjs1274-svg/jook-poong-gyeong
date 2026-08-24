@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
@@ -31,9 +30,8 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 app.get('/api/menus', async (req, res) => {
   const { store_tag, store_tag_id } = req.query;
   try {
-    // 부가옵션(옵션 그룹/옵션)은 별도 테이블이 아니라 menus.options(jsonb) 컬럼에
-    // [{ id, name, is_required, allow_multiple, options: [{ id, name, extra_price }] }] 형태로 저장된다.
-    // select('*')에 이미 포함되어 있으므로 별도 join이 필요 없다.
+    // 부가옵션(옵션 그룹/옵션)은 가게(store_tag) 하위에 공통으로 존재하는 option_groups/option_items를
+    // menu_option_links로 메뉴에 연결하는 구조다. 메뉴 조회 시 연결된 그룹/옵션까지 함께 가져온다.
     let query = supabase
       .from('menus')
       .select(`
@@ -42,6 +40,16 @@ app.get('/api/menus', async (req, res) => {
           id,
           name,
           store_tag
+        ),
+        menu_option_links (
+          option_groups (
+            id,
+            name,
+            is_required,
+            allow_multiple,
+            display_order,
+            option_items ( id, name, extra_price, display_order )
+          )
         )
       `);
 
@@ -67,11 +75,30 @@ app.get('/api/menus', async (req, res) => {
       return true;
     });
 
-    const formattedMenus = filteredData.map(menu => ({
-      ...menu,
-      category: menu.categories ? menu.categories.name : (menu.category || '카테고리 없음'),
-      options: Array.isArray(menu.options) ? menu.options : []
-    }));
+    const formattedMenus = filteredData.map(menu => {
+      // menu_option_links -> option_groups 로 중첩된 구조를 평탄화하고, 프론트에서 쓰기 쉽도록
+      // 그룹의 option_items를 options 라는 이름으로 다시 노출한다.
+      const groups = (menu.menu_option_links || [])
+        .map(link => link.option_groups)
+        .filter(Boolean)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+        .map(group => ({
+          id: group.id,
+          name: group.name,
+          is_required: group.is_required,
+          allow_multiple: group.allow_multiple,
+          options: (group.option_items || [])
+            .slice()
+            .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+        }));
+
+      const { menu_option_links, ...rest } = menu;
+      return {
+        ...rest,
+        category: menu.categories ? menu.categories.name : (menu.category || '카테고리 없음'),
+        options: groups
+      };
+    });
 
     res.json(formattedMenus);
   } catch (err) {
@@ -80,8 +107,24 @@ app.get('/api/menus', async (req, res) => {
   }
 });
 
+// 메뉴 <-> 옵션그룹 연결을 menu_option_links 테이블에 다시 세팅한다 (기존 연결 삭제 후 재삽입).
+const syncMenuOptionLinks = async (menuId, optionGroupIds) => {
+  const groupIds = Array.isArray(optionGroupIds)
+    ? optionGroupIds.map(id => Number(id)).filter(id => !Number.isNaN(id))
+    : [];
+
+  const { error: deleteError } = await supabase.from('menu_option_links').delete().eq('menu_id', menuId);
+  if (deleteError) throw deleteError;
+
+  if (groupIds.length > 0) {
+    const links = groupIds.map(groupId => ({ menu_id: menuId, group_id: groupId }));
+    const { error: insertError } = await supabase.from('menu_option_links').insert(links);
+    if (insertError) throw insertError;
+  }
+};
+
 app.post('/api/menus', async (req, res) => {
-  const { name, price, store_tag_id, store_tag, category_id, category } = req.body;
+  const { name, price, store_tag_id, store_tag, category_id, category, option_group_ids } = req.body;
   try {
     let categoryName = null;
     let resolvedStoreTag = store_tag ? store_tag.trim() : null;
@@ -115,15 +158,22 @@ app.post('/api/menus', async (req, res) => {
       .select();
 
     if (error) throw error;
+
+    const newMenu = data && data[0];
+    if (newMenu) {
+      await syncMenuOptionLinks(newMenu.id, option_group_ids);
+    }
+
     res.json(data);
   } catch (err) {
+    console.error('메뉴 등록 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.put('/api/menus/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, price, store_tag_id, store_tag, category_id } = req.body;
+  const { name, price, store_tag_id, store_tag, category_id, option_group_ids } = req.body;
 
   try {
     let categoryName = null;
@@ -163,6 +213,10 @@ app.put('/api/menus/:id', async (req, res) => {
     if (error) {
       console.error('Supabase menus update 에러:', error);
       return res.status(500).json({ error: error.message });
+    }
+
+    if (option_group_ids !== undefined) {
+      await syncMenuOptionLinks(Number(id), option_group_ids);
     }
 
     res.json(data);
@@ -276,44 +330,62 @@ app.delete('/api/categories/:id', async (req, res) => {
 });
 
 // ==========================================
-// [1-2] 메뉴 부가옵션(옵션 그룹 / 옵션) 관리 API
-//  별도 테이블 없이 menus.options(jsonb) 컬럼 하나에 아래 구조로 저장한다.
-//  [{ id, name, is_required, allow_multiple, options: [{ id, name, extra_price }] }]
-//  예) "옛날칼국수" 메뉴의 options 컬럼에
-//      - 옵션 그룹: "곱빼기 선택" (기본/곱빼기)
-//      - 옵션 그룹: "면 종류 선택" (칼국수/수제비/칼제비)
+// [1-2] 부가옵션(옵션 그룹 / 옵션) 관리 API
+//  카테고리와 마찬가지로 "가게(store_tag)" 하위에 공통으로 귀속되는 리소스다.
+//  option_groups(가게별 옵션 그룹) - option_items(그룹별 옵션 항목) - menu_option_links(메뉴↔그룹 연결)
+//  예) "죽풍경" 가게에 "곱빼기 선택"(기본/곱빼기), "면 종류 선택"(칼국수/수제비/칼제비) 그룹을 만들어두면
+//      메뉴 등록/수정 시 이 그룹들 중 필요한 것을 골라서 연결하는 방식.
 // ==========================================
-// 메뉴 한 건의 options(jsonb) 배열을 읽어온다.
-const getMenuOptions = async (menuId) => {
-  const { data, error } = await supabase.from('menus').select('options').eq('id', menuId).single();
-  if (error) throw error;
-  return Array.isArray(data.options) ? data.options : [];
-};
 
-// 옵션 그룹 추가
-app.post('/api/menus/:menuId/option-groups', async (req, res) => {
-  const { menuId } = req.params;
-  const { name, is_required, allow_multiple } = req.body;
+// 가게별 옵션 그룹 목록 조회 (각 그룹의 옵션 항목까지 함께)
+app.get('/api/option-groups', async (req, res) => {
+  const { store_tag } = req.query;
+  try {
+    let query = supabase
+      .from('option_groups')
+      .select(`*, option_items ( id, name, extra_price, display_order )`)
+      .order('display_order', { ascending: true });
 
+    if (store_tag && store_tag !== '전체') {
+      query = query.eq('store_tag', store_tag.trim());
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const formatted = (data || []).map(group => ({
+      ...group,
+      option_items: (group.option_items || []).slice().sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+    }));
+
+    res.json(formatted);
+  } catch (err) {
+    console.error('옵션 그룹 조회 에러:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 옵션 그룹 추가 (가게 하위)
+app.post('/api/option-groups', async (req, res) => {
+  const { name, store_tag, is_required, allow_multiple } = req.body;
   if (!name) return res.status(400).json({ error: '옵션 그룹명을 입력해주세요.' });
+  if (!store_tag) return res.status(400).json({ error: '옵션 그룹을 추가할 가게를 먼저 선택해주세요.' });
 
   try {
-    const currentOptions = await getMenuOptions(menuId);
-
-    const newGroup = {
-      id: crypto.randomUUID(),
-      name,
-      is_required: !!is_required,
-      allow_multiple: !!allow_multiple,
-      options: []
-    };
-
-    const updatedOptions = [...currentOptions, newGroup];
+    const { count } = await supabase
+      .from('option_groups')
+      .select('id', { count: 'exact', head: true })
+      .eq('store_tag', store_tag.trim());
 
     const { data, error } = await supabase
-      .from('menus')
-      .update({ options: updatedOptions })
-      .eq('id', menuId)
+      .from('option_groups')
+      .insert([{
+        name,
+        store_tag: store_tag.trim(),
+        is_required: !!is_required,
+        allow_multiple: !!allow_multiple,
+        display_order: count || 0
+      }])
       .select();
 
     if (error) throw error;
@@ -325,28 +397,17 @@ app.post('/api/menus/:menuId/option-groups', async (req, res) => {
 });
 
 // 옵션 그룹 수정 (이름 / 필수 여부 / 다중 선택 허용 여부)
-app.put('/api/menus/:menuId/option-groups/:groupId', async (req, res) => {
-  const { menuId, groupId } = req.params;
+app.put('/api/option-groups/:id', async (req, res) => {
+  const { id } = req.params;
   const { name, is_required, allow_multiple } = req.body;
 
   try {
-    const currentOptions = await getMenuOptions(menuId);
-    let found = false;
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (is_required !== undefined) updateData.is_required = !!is_required;
+    if (allow_multiple !== undefined) updateData.allow_multiple = !!allow_multiple;
 
-    const updatedOptions = currentOptions.map(group => {
-      if (group.id !== groupId) return group;
-      found = true;
-      return {
-        ...group,
-        name: name !== undefined ? name : group.name,
-        is_required: is_required !== undefined ? !!is_required : group.is_required,
-        allow_multiple: allow_multiple !== undefined ? !!allow_multiple : group.allow_multiple
-      };
-    });
-
-    if (!found) return res.status(404).json({ error: '옵션 그룹을 찾을 수 없습니다.' });
-
-    const { data, error } = await supabase.from('menus').update({ options: updatedOptions }).eq('id', menuId).select();
+    const { data, error } = await supabase.from('option_groups').update(updateData).eq('id', id).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -355,14 +416,34 @@ app.put('/api/menus/:menuId/option-groups/:groupId', async (req, res) => {
   }
 });
 
-// 옵션 그룹 삭제 (하위 옵션도 함께 삭제됨)
-app.delete('/api/menus/:menuId/option-groups/:groupId', async (req, res) => {
-  const { menuId, groupId } = req.params;
+// 옵션 그룹 순서 변경 (카테고리/가게구분과 동일한 방식)
+app.put('/api/option-groups/order', async (req, res) => {
   try {
-    const currentOptions = await getMenuOptions(menuId);
-    const updatedOptions = currentOptions.filter(group => group.id !== groupId);
+    const groups = Array.isArray(req.body) ? req.body : (req.body.items || req.body.order);
+    if (!Array.isArray(groups)) {
+      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
+    }
 
-    const { error } = await supabase.from('menus').update({ options: updatedOptions }).eq('id', menuId);
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      if (!g.id) continue;
+      const displayOrder = g.display_order !== undefined ? g.display_order : i;
+      const { error } = await supabase.from('option_groups').update({ display_order: displayOrder }).eq('id', g.id);
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('옵션 그룹 순서 변경 에러:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 옵션 그룹 삭제 (하위 옵션 및 메뉴 연결도 함께 삭제됨 - FK CASCADE)
+app.delete('/api/option-groups/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { error } = await supabase.from('option_groups').delete().eq('id', id);
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
@@ -372,31 +453,27 @@ app.delete('/api/menus/:menuId/option-groups/:groupId', async (req, res) => {
 });
 
 // 옵션(부가옵션 항목) 추가 - 추가 비용 포함
-app.post('/api/menus/:menuId/option-groups/:groupId/options', async (req, res) => {
-  const { menuId, groupId } = req.params;
+app.post('/api/option-groups/:groupId/items', async (req, res) => {
+  const { groupId } = req.params;
   const { name, extra_price } = req.body;
-
   if (!name) return res.status(400).json({ error: '옵션명을 입력해주세요.' });
 
   try {
-    const currentOptions = await getMenuOptions(menuId);
-    let found = false;
+    const { count } = await supabase
+      .from('option_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('group_id', Number(groupId));
 
-    const newOption = {
-      id: crypto.randomUUID(),
-      name,
-      extra_price: extra_price ? Number(extra_price) : 0
-    };
+    const { data, error } = await supabase
+      .from('option_items')
+      .insert([{
+        group_id: Number(groupId),
+        name,
+        extra_price: extra_price ? Number(extra_price) : 0,
+        display_order: count || 0
+      }])
+      .select();
 
-    const updatedOptions = currentOptions.map(group => {
-      if (group.id !== groupId) return group;
-      found = true;
-      return { ...group, options: [...(group.options || []), newOption] };
-    });
-
-    if (!found) return res.status(404).json({ error: '옵션 그룹을 찾을 수 없습니다.' });
-
-    const { data, error } = await supabase.from('menus').update({ options: updatedOptions }).eq('id', menuId).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -406,33 +483,16 @@ app.post('/api/menus/:menuId/option-groups/:groupId/options', async (req, res) =
 });
 
 // 옵션(부가옵션 항목) 수정
-app.put('/api/menus/:menuId/option-groups/:groupId/options/:optionId', async (req, res) => {
-  const { menuId, groupId, optionId } = req.params;
+app.put('/api/option-items/:id', async (req, res) => {
+  const { id } = req.params;
   const { name, extra_price } = req.body;
 
   try {
-    const currentOptions = await getMenuOptions(menuId);
-    let found = false;
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (extra_price !== undefined) updateData.extra_price = Number(extra_price);
 
-    const updatedOptions = currentOptions.map(group => {
-      if (group.id !== groupId) return group;
-      return {
-        ...group,
-        options: (group.options || []).map(opt => {
-          if (opt.id !== optionId) return opt;
-          found = true;
-          return {
-            ...opt,
-            name: name !== undefined ? name : opt.name,
-            extra_price: extra_price !== undefined ? Number(extra_price) : opt.extra_price
-          };
-        })
-      };
-    });
-
-    if (!found) return res.status(404).json({ error: '옵션을 찾을 수 없습니다.' });
-
-    const { data, error } = await supabase.from('menus').update({ options: updatedOptions }).eq('id', menuId).select();
+    const { data, error } = await supabase.from('option_items').update(updateData).eq('id', id).select();
     if (error) throw error;
     res.json(data);
   } catch (err) {
@@ -442,19 +502,10 @@ app.put('/api/menus/:menuId/option-groups/:groupId/options/:optionId', async (re
 });
 
 // 옵션(부가옵션 항목) 삭제
-app.delete('/api/menus/:menuId/option-groups/:groupId/options/:optionId', async (req, res) => {
-  const { menuId, groupId } = req.params;
-  const { optionId } = req.params;
-
+app.delete('/api/option-items/:id', async (req, res) => {
+  const { id } = req.params;
   try {
-    const currentOptions = await getMenuOptions(menuId);
-
-    const updatedOptions = currentOptions.map(group => {
-      if (group.id !== groupId) return group;
-      return { ...group, options: (group.options || []).filter(opt => opt.id !== optionId) };
-    });
-
-    const { error } = await supabase.from('menus').update({ options: updatedOptions }).eq('id', menuId);
+    const { error } = await supabase.from('option_items').delete().eq('id', id);
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
