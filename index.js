@@ -815,6 +815,36 @@ app.get('/api/sales/daily', async (req, res) => {
   }
 });
 
+// 월단위/연단위 매출 정산 화면에서 사용 - 지정한 기간(start~end, 둘 다 포함) 사이의 모든 주문을 반환한다.
+// (일단위 조회와 동일한 형태로 내려주고, 일/월 단위 집계와 필터링은 프론트에서 처리한다.)
+app.get('/api/sales/range', async (req, res) => {
+  const { start, end } = req.query;
+  if (!start || !end) return res.status(400).json({ error: 'start, end 쿼리 파라미터가 필요합니다.' });
+
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`*, order_types(*), order_items(*, menus(*))`)
+      .gte('created_at', `${start}T00:00:00`)
+      .lte('created_at', `${end}T23:59:59`)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    const formatted = (data || []).map(order => ({
+      ...order,
+      order_items: (order.order_items || []).map(item => ({
+        ...item,
+        options: parseSelectedOptions(item.selected_options)
+      }))
+    }));
+
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/orders/:id', async (req, res) => {
   const { id } = req.params;
   try {
