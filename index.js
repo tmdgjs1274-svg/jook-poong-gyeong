@@ -399,7 +399,10 @@ app.get('/api/option-groups', async (req, res) => {
   try {
     let query = supabase
       .from('option_groups')
-      .select(`*, option_items ( id, name, extra_price, base_extra_price, display_order )`)
+      // option_items의 컬럼을 하나씩 나열하면 아직 없는 컬럼(예: base_extra_price)을 지정했을 때 조회 자체가 500 에러로
+      // 실패해버린다. '*'로 전체 컬럼을 가져오면 해당 컬럼이 없어도 조회는 항상 성공하고, 나중에 컬럼이 추가되면
+      // 자동으로 함께 내려간다.
+      .select(`*, option_items ( * )`)
       .order('display_order', { ascending: true });
 
     if (store_tag && store_tag !== '전체') {
