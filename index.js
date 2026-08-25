@@ -195,6 +195,12 @@ app.put('/api/menus/order', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('메뉴 순서 변경 에러:', err.message);
+    // Postgres의 "컬럼 없음" 에러(42703)는 menus 테이블에 display_order 컬럼이 아직 없는 경우다.
+    // 이 경우 원인을 바로 알 수 있도록 안내 메시지를 붙여서 내려준다.
+    const isMissingColumn = err.code === '42703' || /display_order.*does not exist/i.test(err.message || '');
+    if (isMissingColumn) {
+      return res.status(500).json({ error: 'menus 테이블에 display_order 컬럼이 없어서 순서를 저장할 수 없습니다. Supabase Table Editor에서 menus 테이블에 display_order(정수, 기본값 0) 컬럼을 추가한 뒤 다시 시도해주세요.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -393,7 +399,7 @@ app.get('/api/option-groups', async (req, res) => {
   try {
     let query = supabase
       .from('option_groups')
-      .select(`*, option_items ( id, name, extra_price, display_order )`)
+      .select(`*, option_items ( id, name, extra_price, base_extra_price, display_order )`)
       .order('display_order', { ascending: true });
 
     if (store_tag && store_tag !== '전체') {
@@ -558,6 +564,8 @@ app.put('/api/option-items/order', async (req, res) => {
 
 // 옵션(부가옵션 항목) 가격 일괄 조정 - 옵션 그룹 안의 옵션들 추가금액을 정액/정률로 한번에 가산·감산할 때 사용.
 // 반올림/0원 미만 방지 등 계산은 프론트에서 끝내고, 여기서는 계산된 최종 extra_price만 그대로 저장한다.
+// base_extra_price는 "조정 전 원래 금액"을 잠시 보관해두는 용도다. 적용할 때는 조정 전 금액을 여기 저장하고,
+// 해제할 때는 이 값을 다시 extra_price로 되돌린 뒤 null로 비운다 (null이면 "지금 적용 중인 조정 없음"이라는 뜻).
 // '/api/option-items/:id' 보다 반드시 먼저 등록해서 "bulk-price"가 :id로 잘못 매칭되는 것을 막는다 (order 엔드포인트와 동일한 이유).
 app.put('/api/option-items/bulk-price', async (req, res) => {
   try {
@@ -569,13 +577,22 @@ app.put('/api/option-items/bulk-price', async (req, res) => {
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       if (!it.id) continue;
-      const { error } = await supabase.from('option_items').update({ extra_price: Number(it.extra_price) || 0 }).eq('id', it.id);
+      const updateData = { extra_price: Number(it.extra_price) || 0 };
+      if (Object.prototype.hasOwnProperty.call(it, 'base_extra_price')) {
+        updateData.base_extra_price = (it.base_extra_price === null || it.base_extra_price === undefined) ? null : Number(it.base_extra_price);
+      }
+      const { error } = await supabase.from('option_items').update(updateData).eq('id', it.id);
       if (error) throw error;
     }
 
     res.json({ success: true });
   } catch (err) {
     console.error('옵션 가격 일괄 조정 에러:', err.message);
+    // Postgres의 "컬럼 없음" 에러(42703) - option_items 테이블에 base_extra_price 컬럼이 아직 없는 경우다.
+    const isMissingColumn = err.code === '42703' || /base_extra_price.*does not exist/i.test(err.message || '');
+    if (isMissingColumn) {
+      return res.status(500).json({ error: 'option_items 테이블에 base_extra_price 컬럼이 없어서 임시 가격 조정을 적용/해제할 수 없습니다. Supabase Table Editor에서 option_items 테이블에 base_extra_price(정수, NULL 허용) 컬럼을 추가한 뒤 다시 시도해주세요.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
