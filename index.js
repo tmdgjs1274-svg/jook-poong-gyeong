@@ -313,6 +313,28 @@ app.put('/api/categories/order', async (req, res) => {
   }
 });
 
+// 카테고리명 수정 (※ '/api/categories/order' 라우트보다 반드시 아래에 있어야 한다 -
+//   그렇지 않으면 :id 파라미터가 "order"라는 문자열을 가로채서 순서 변경 API가 깨진다)
+app.put('/api/categories/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: '카테고리명을 입력해주세요.' });
+
+  try {
+    const { data, error } = await supabase
+      .from('categories')
+      .update({ name: name.trim() })
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    console.error('카테고리 수정 에러:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/categories/:id', async (req, res) => {
   const { id } = req.params;
   try {
