@@ -100,6 +100,10 @@ app.get('/api/menus', async (req, res) => {
       };
     });
 
+    // 메뉴 관리 화면의 드래그 순서변경(display_order)이 새로고침 후에도 유지되도록 정렬해서 내려준다.
+    // display_order가 아직 없는(기존) 메뉴는 0으로 취급되어 뒤섞이지 않고 그대로 앞쪽에 남는다.
+    formattedMenus.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+
     res.json(formattedMenus);
   } catch (err) {
     console.error('메뉴 목록 조회 서버 예외:', err.message);
@@ -167,6 +171,30 @@ app.post('/api/menus', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('메뉴 등록 에러:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 메뉴 순서 변경 (카테고리/가게구분과 동일한 방식). 반드시 '/api/menus/:id' 보다 먼저 등록해야
+// Express가 "order"를 :id 값으로 잘못 매칭하는 라우팅 충돌을 피할 수 있다.
+app.put('/api/menus/order', async (req, res) => {
+  try {
+    const menuList = Array.isArray(req.body) ? req.body : (req.body.items || req.body.order);
+    if (!Array.isArray(menuList)) {
+      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
+    }
+
+    for (let i = 0; i < menuList.length; i++) {
+      const m = menuList[i];
+      if (!m.id) continue;
+      const displayOrder = m.display_order !== undefined ? m.display_order : i;
+      const { error } = await supabase.from('menus').update({ display_order: displayOrder }).eq('id', m.id);
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('메뉴 순서 변경 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -418,27 +446,8 @@ app.post('/api/option-groups', async (req, res) => {
   }
 });
 
-// 옵션 그룹 수정 (이름 / 필수 여부 / 다중 선택 허용 여부)
-app.put('/api/option-groups/:id', async (req, res) => {
-  const { id } = req.params;
-  const { name, is_required, allow_multiple } = req.body;
-
-  try {
-    const updateData = {};
-    if (name !== undefined) updateData.name = name;
-    if (is_required !== undefined) updateData.is_required = !!is_required;
-    if (allow_multiple !== undefined) updateData.allow_multiple = !!allow_multiple;
-
-    const { data, error } = await supabase.from('option_groups').update(updateData).eq('id', id).select();
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    console.error('옵션 그룹 수정 에러:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 옵션 그룹 순서 변경 (카테고리/가게구분과 동일한 방식)
+// 옵션 그룹 순서 변경 (카테고리/가게구분과 동일한 방식). '/api/option-groups/:id' 보다 반드시 먼저 등록해서
+// Express가 "order"를 :id 값으로 잘못 매칭하는 라우팅 충돌을 피한다 (menus/order와 동일한 이유).
 app.put('/api/option-groups/order', async (req, res) => {
   try {
     const groups = Array.isArray(req.body) ? req.body : (req.body.items || req.body.order);
@@ -457,6 +466,26 @@ app.put('/api/option-groups/order', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('옵션 그룹 순서 변경 에러:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 옵션 그룹 수정 (이름 / 필수 여부 / 다중 선택 허용 여부)
+app.put('/api/option-groups/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, is_required, allow_multiple } = req.body;
+
+  try {
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (is_required !== undefined) updateData.is_required = !!is_required;
+    if (allow_multiple !== undefined) updateData.allow_multiple = !!allow_multiple;
+
+    const { data, error } = await supabase.from('option_groups').update(updateData).eq('id', id).select();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    console.error('옵션 그룹 수정 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -500,6 +529,29 @@ app.post('/api/option-groups/:groupId/items', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('옵션 추가 에러:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 옵션(부가옵션 항목) 순서 변경. '/api/option-items/:id' 보다 반드시 먼저 등록해야 한다.
+app.put('/api/option-items/order', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body) ? req.body : (req.body.items || req.body.order);
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
+    }
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it.id) continue;
+      const displayOrder = it.display_order !== undefined ? it.display_order : i;
+      const { error } = await supabase.from('option_items').update({ display_order: displayOrder }).eq('id', it.id);
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('옵션 순서 변경 에러:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
