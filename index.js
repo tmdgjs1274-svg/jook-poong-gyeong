@@ -556,6 +556,30 @@ app.put('/api/option-items/order', async (req, res) => {
   }
 });
 
+// 옵션(부가옵션 항목) 가격 일괄 조정 - 옵션 그룹 안의 옵션들 추가금액을 정액/정률로 한번에 가산·감산할 때 사용.
+// 반올림/0원 미만 방지 등 계산은 프론트에서 끝내고, 여기서는 계산된 최종 extra_price만 그대로 저장한다.
+// '/api/option-items/:id' 보다 반드시 먼저 등록해서 "bulk-price"가 :id로 잘못 매칭되는 것을 막는다 (order 엔드포인트와 동일한 이유).
+app.put('/api/option-items/bulk-price', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body) ? req.body : (req.body.items || req.body.order);
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: '올바른 형식의 데이터가 아닙니다.', received: req.body });
+    }
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it.id) continue;
+      const { error } = await supabase.from('option_items').update({ extra_price: Number(it.extra_price) || 0 }).eq('id', it.id);
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('옵션 가격 일괄 조정 에러:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 옵션(부가옵션 항목) 수정
 app.put('/api/option-items/:id', async (req, res) => {
   const { id } = req.params;
