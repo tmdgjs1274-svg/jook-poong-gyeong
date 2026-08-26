@@ -769,6 +769,24 @@ app.delete('/api/order-types/:id', async (req, res) => {
 // ==========================================
 // [4] 주문 및 일매출 정산 API
 // ==========================================
+
+// order_items.original_price 컬럼이 아직 없는 환경(Supabase 테이블에 컬럼 추가 전)에서도
+// 주문 저장/수정이 절대 실패하지 않도록, 컬럼 없음 에러(42703)를 잡아 해당 필드를 제거하고 재시도한다.
+async function insertOrderItemsSafely(orderItems) {
+  const { error } = await supabase.from('order_items').insert(orderItems);
+  if (error) {
+    const missingOriginalPrice =
+      error.code === '42703' || /original_price.*does not exist/i.test(error.message || '');
+    if (missingOriginalPrice) {
+      const fallbackItems = orderItems.map(({ original_price, ...rest }) => rest);
+      const { error: retryError } = await supabase.from('order_items').insert(fallbackItems);
+      if (retryError) throw retryError;
+      return;
+    }
+    throw error;
+  }
+}
+
 app.post('/api/orders', async (req, res) => {
   let { store_id, order_type_id, payment_type, total_amount, items, created_at } = req.body;
 
@@ -802,13 +820,13 @@ app.post('/api/orders', async (req, res) => {
         menu_id: item.menu_id === 0 ? null : item.menu_id,
         quantity: item.quantity,
         price: item.price,
+        original_price: item.original_price != null ? item.original_price : null,
         // 선택된 부가옵션 스냅샷. order_items.selected_options 컬럼이 text 타입이므로 JSON 문자열로 저장한다.
         // 예: '[{"group_name":"곱빼기 선택","option_name":"곱빼기","extra_price":1000}]'
         selected_options: JSON.stringify(item.options || [])
       }));
 
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
-      if (itemsError) throw itemsError;
+      await insertOrderItemsSafely(orderItems);
     }
 
     res.json({ success: true, order_id: newOrder.id });
@@ -848,11 +866,11 @@ app.put('/api/orders/:id', async (req, res) => {
         menu_id: item.menu_id === 0 ? null : item.menu_id,
         quantity: item.quantity,
         price: item.price,
+        original_price: item.original_price != null ? item.original_price : null,
         selected_options: JSON.stringify(item.options || [])
       }));
 
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
-      if (itemsError) throw itemsError;
+      await insertOrderItemsSafely(orderItems);
     }
 
     res.json({ success: true });
@@ -959,4 +977,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`POS Backend Server is running on port ${PORT}`);
 });
- 
