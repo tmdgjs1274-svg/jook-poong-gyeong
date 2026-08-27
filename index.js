@@ -772,19 +772,24 @@ app.delete('/api/order-types/:id', async (req, res) => {
 
 // order_items.original_price 컬럼이 아직 없는 환경(Supabase 테이블에 컬럼 추가 전)에서도
 // 주문 저장/수정이 절대 실패하지 않도록, 컬럼 없음 에러(42703)를 잡아 해당 필드를 제거하고 재시도한다.
+// 반환값 { discountPersisted } - false면 이번 저장에서 original_price가 실제로는 저장되지 않았다는 뜻이므로,
+// 호출부에서 이 사실을 응답에 실어 프론트에서 사용자에게 알려줄 수 있게 한다(그동안 컬럼이 없으면 정률 할인
+// 정보가 조용히 유실되는데도 "저장 성공"으로만 보여서 원인을 알기 어려웠던 문제를 해결하기 위함).
 async function insertOrderItemsSafely(orderItems) {
   const { error } = await supabase.from('order_items').insert(orderItems);
   if (error) {
     const missingOriginalPrice =
       error.code === '42703' || /original_price.*does not exist/i.test(error.message || '');
     if (missingOriginalPrice) {
+      console.warn('[order_items] original_price 컬럼이 없어 해당 필드 없이 저장합니다. Supabase에 order_items.original_price(nullable int) 컬럼을 추가해주세요.');
       const fallbackItems = orderItems.map(({ original_price, ...rest }) => rest);
       const { error: retryError } = await supabase.from('order_items').insert(fallbackItems);
       if (retryError) throw retryError;
-      return;
+      return { discountPersisted: false };
     }
     throw error;
   }
+  return { discountPersisted: true };
 }
 
 app.post('/api/orders', async (req, res) => {
@@ -826,7 +831,10 @@ app.post('/api/orders', async (req, res) => {
         selected_options: JSON.stringify(item.options || [])
       }));
 
-      await insertOrderItemsSafely(orderItems);
+      const { discountPersisted } = await insertOrderItemsSafely(orderItems);
+      if (!discountPersisted) {
+        return res.json({ success: true, order_id: newOrder.id, discount_persisted: false, warning: 'order_items.original_price 컬럼이 없어 정률 할인 정보는 저장되지 않았습니다. Supabase Table Editor에서 order_items 테이블에 original_price(nullable int) 컬럼을 추가해주세요.' });
+      }
     }
 
     res.json({ success: true, order_id: newOrder.id });
@@ -870,7 +878,10 @@ app.put('/api/orders/:id', async (req, res) => {
         selected_options: JSON.stringify(item.options || [])
       }));
 
-      await insertOrderItemsSafely(orderItems);
+      const { discountPersisted } = await insertOrderItemsSafely(orderItems);
+      if (!discountPersisted) {
+        return res.json({ success: true, discount_persisted: false, warning: 'order_items.original_price 컬럼이 없어 정률 할인 정보는 저장되지 않았습니다. Supabase Table Editor에서 order_items 테이블에 original_price(nullable int) 컬럼을 추가해주세요.' });
+      }
     }
 
     res.json({ success: true });
