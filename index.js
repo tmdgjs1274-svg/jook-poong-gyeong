@@ -792,8 +792,48 @@ async function insertOrderItemsSafely(orderItems) {
   return { discountPersisted: true };
 }
 
+// orders.discount_percent 컬럼이 아직 없는 환경에서도 주문 저장/수정이 실패하지 않도록, insertOrderItemsSafely와
+// 동일한 패턴으로 컬럼 없음 에러를 잡아 그 필드 없이 재시도한다. 이 컬럼은 "이 주문 전체에 정률 할인이
+// 적용되어 있었는지"를 그대로 기억해두는 용도다 - order_items 쪽 original_price만으로는(항목별 원래 금액만
+// 알 수 있을 뿐) 그게 "전체 일괄 적용"이었는지 "메뉴 1건에만 건 것"이었는지 구분이 안 되고, 특히 메뉴가
+// 1개뿐인 주문은 이 둘을 원천적으로 구분할 방법이 없어서 재수정 시 전체 할인이 메뉴별 할인으로 잘못
+// 표시되는 문제가 있었다. 이 컬럼에 명시적으로 기록해두면 그 판단이 필요 없어진다.
+async function insertOrderSafely(orderData) {
+  const { data, error } = await supabase.from('orders').insert([orderData]).select().single();
+  if (error) {
+    const missingDiscountPercent =
+      error.code === '42703' || /discount_percent.*does not exist/i.test(error.message || '');
+    if (missingDiscountPercent) {
+      console.warn('[orders] discount_percent 컬럼이 없어 해당 필드 없이 저장합니다. Supabase에 orders.discount_percent(nullable int) 컬럼을 추가해주세요.');
+      const { discount_percent, ...fallbackData } = orderData;
+      const { data: retryData, error: retryError } = await supabase.from('orders').insert([fallbackData]).select().single();
+      if (retryError) throw retryError;
+      return { data: retryData, discountPersisted: false };
+    }
+    throw error;
+  }
+  return { data, discountPersisted: true };
+}
+
+async function updateOrderSafely(id, updateData) {
+  const { error } = await supabase.from('orders').update(updateData).eq('id', id);
+  if (error) {
+    const missingDiscountPercent =
+      error.code === '42703' || /discount_percent.*does not exist/i.test(error.message || '');
+    if (missingDiscountPercent) {
+      console.warn('[orders] discount_percent 컬럼이 없어 해당 필드 없이 수정합니다. Supabase에 orders.discount_percent(nullable int) 컬럼을 추가해주세요.');
+      const { discount_percent, ...fallbackData } = updateData;
+      const { error: retryError } = await supabase.from('orders').update(fallbackData).eq('id', id);
+      if (retryError) throw retryError;
+      return { discountPersisted: false };
+    }
+    throw error;
+  }
+  return { discountPersisted: true };
+}
+
 app.post('/api/orders', async (req, res) => {
-  let { store_id, order_type_id, payment_type, total_amount, items, created_at } = req.body;
+  let { store_id, order_type_id, payment_type, total_amount, items, created_at, discount_percent } = req.body;
 
   try {
     const { data: orderTypes } = await supabase.from('order_types').select('id');
@@ -805,20 +845,16 @@ app.post('/api/orders', async (req, res) => {
     const orderData = {
       order_type_id: Number(order_type_id),
       payment_type: payment_type || '카드',
-      total_amount: total_amount
+      total_amount: total_amount,
+      discount_percent: discount_percent != null ? discount_percent : null
     };
 
     if (created_at) orderData.created_at = created_at;
     if (store_id) orderData.store_id = store_id;
 
-    const { data: newOrder, error: orderError } = await supabase
-      .from('orders')
-      .insert([orderData])
-      .select()
-      .single();
+    const { data: newOrder, discountPersisted: orderDiscountPersisted } = await insertOrderSafely(orderData);
 
-    if (orderError) throw orderError;
-
+    let itemsDiscountPersisted = true;
     if (items && items.length > 0) {
       const orderItems = items.map(item => ({
         order_id: newOrder.id,
@@ -832,9 +868,15 @@ app.post('/api/orders', async (req, res) => {
       }));
 
       const { discountPersisted } = await insertOrderItemsSafely(orderItems);
-      if (!discountPersisted) {
-        return res.json({ success: true, order_id: newOrder.id, discount_persisted: false, warning: 'order_items.original_price 컬럼이 없어 정률 할인 정보는 저장되지 않았습니다. Supabase Table Editor에서 order_items 테이블에 original_price(nullable int) 컬럼을 추가해주세요.' });
-      }
+      itemsDiscountPersisted = discountPersisted;
+    }
+
+    if (!orderDiscountPersisted || !itemsDiscountPersisted) {
+      const missing = [
+        !orderDiscountPersisted && 'orders.discount_percent',
+        !itemsDiscountPersisted && 'order_items.original_price'
+      ].filter(Boolean).join(', ');
+      return res.json({ success: true, order_id: newOrder.id, discount_persisted: false, warning: `${missing} 컬럼이 없어 정률 할인 정보는 저장되지 않았습니다. Supabase Table Editor에서 해당 컬럼(nullable int)을 추가해주세요.` });
     }
 
     res.json({ success: true, order_id: newOrder.id });
@@ -847,27 +889,24 @@ app.post('/api/orders', async (req, res) => {
 // 주문 수정 (기존 주문 항목 전체 교체)
 app.put('/api/orders/:id', async (req, res) => {
   const { id } = req.params;
-  let { order_type_id, payment_type, total_amount, items, created_at } = req.body;
+  let { order_type_id, payment_type, total_amount, items, created_at, discount_percent } = req.body;
 
   try {
     const updateData = {
       order_type_id: Number(order_type_id),
       payment_type: payment_type || '카드',
-      total_amount: total_amount
+      total_amount: total_amount,
+      discount_percent: discount_percent != null ? discount_percent : null
     };
     if (created_at) updateData.created_at = created_at;
 
-    const { error: orderError } = await supabase
-      .from('orders')
-      .update(updateData)
-      .eq('id', id);
-
-    if (orderError) throw orderError;
+    const { discountPersisted: orderDiscountPersisted } = await updateOrderSafely(id, updateData);
 
     // 기존 주문 항목 삭제 후 재등록
     const { error: deleteError } = await supabase.from('order_items').delete().eq('order_id', id);
     if (deleteError) throw deleteError;
 
+    let itemsDiscountPersisted = true;
     if (items && items.length > 0) {
       const orderItems = items.map(item => ({
         order_id: Number(id),
@@ -879,9 +918,15 @@ app.put('/api/orders/:id', async (req, res) => {
       }));
 
       const { discountPersisted } = await insertOrderItemsSafely(orderItems);
-      if (!discountPersisted) {
-        return res.json({ success: true, discount_persisted: false, warning: 'order_items.original_price 컬럼이 없어 정률 할인 정보는 저장되지 않았습니다. Supabase Table Editor에서 order_items 테이블에 original_price(nullable int) 컬럼을 추가해주세요.' });
-      }
+      itemsDiscountPersisted = discountPersisted;
+    }
+
+    if (!orderDiscountPersisted || !itemsDiscountPersisted) {
+      const missing = [
+        !orderDiscountPersisted && 'orders.discount_percent',
+        !itemsDiscountPersisted && 'order_items.original_price'
+      ].filter(Boolean).join(', ');
+      return res.json({ success: true, discount_persisted: false, warning: `${missing} 컬럼이 없어 정률 할인 정보는 저장되지 않았습니다. Supabase Table Editor에서 해당 컬럼(nullable int)을 추가해주세요.` });
     }
 
     res.json({ success: true });
